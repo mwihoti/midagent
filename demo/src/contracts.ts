@@ -1,6 +1,3 @@
-import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
-import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
-import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { ContractState } from '@midnight-ntwrk/compact-runtime';
 
 function toHex(bytes: Uint8Array): string {
@@ -14,22 +11,6 @@ function fromHex(hex: string): Uint8Array {
     bytes[i / 2] = parseInt(normalized.slice(i, i + 2), 16);
   }
   return bytes;
-}
-
-export function createSession(config: any) {
-  setNetworkId(config.networkId);
-
-  const zkConfigProvider = new FetchZkConfigProvider(
-    new URL('/contract/agent-registry', window.location.origin).toString(),
-    window.fetch.bind(window),
-  );
-
-  const publicDataProvider = indexerPublicDataProvider(
-    config.indexerUri,
-    config.indexerWsUri,
-  );
-
-  return { zkConfigProvider, publicDataProvider, config };
 }
 
 export async function deployContract(

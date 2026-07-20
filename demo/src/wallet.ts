@@ -1,5 +1,7 @@
 import '@midnight-ntwrk/dapp-connector-api';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
+import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 
 export interface WalletInfo {
   name: string;
@@ -47,5 +49,16 @@ export async function connectWallet(network: string = 'preprod'): Promise<{
 
 export function createSession(config: any) {
   setNetworkId(config.networkId);
-  return { config };
+
+  const zkConfigProvider = new FetchZkConfigProvider(
+    new URL('/contract/agent-registry', window.location.origin).toString(),
+    window.fetch.bind(window),
+  );
+
+  const publicDataProvider = indexerPublicDataProvider(
+    config.indexerUri,
+    config.indexerWsUri,
+  );
+
+  return { config, zkConfigProvider, publicDataProvider };
 }
