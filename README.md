@@ -32,6 +32,7 @@ This separation is what makes Midnight's privacy model powerful: public state en
 - Node.js 22+
 - Docker (for local devnet)
 - Compact compiler (`compact` CLI)
+- Midnight wallet extension (1AM or Lace) for frontend
 
 ### Install
 
@@ -51,7 +52,6 @@ yarn compile
 ```
 
 Output:
-
 ```
 Compiling 2 circuits:        # agent-registry
 Compiling 3 circuits:        # marketplace
@@ -81,19 +81,20 @@ MIDNIGHT_NETWORK=local NODE_OPTIONS='--experimental-vm-modules' \
 yarn env:down
 ```
 
-### Deploy to Testnet (Preview/Preprod)
+### Frontend (Lace Wallet)
 
 ```bash
-# Deploy to preprod testnet
-MN_TEST_ENVIRONMENT=preprod NODE_OPTIONS='--experimental-vm-modules' \
-  npx tsx src/deploy-testnet.ts
+cd demo
+npm install
+
+# Sync ZK assets to public/
+npm run sync:zk
+
+# Start dev server
+npm run dev
 ```
 
-The script will output a contract address like:
-
-```
-Contract deployed to preprod: af012c8575cc97b9ee9a4c0bb5ac985130c44cfab6a0be14284d02e6c91c7e78
-```
+Open `http://localhost:5173`. Connect your Lace wallet to deploy contracts and call circuits on preprod.
 
 ## Project Structure
 
@@ -105,29 +106,36 @@ agent/
 │   ├── payments.compact
 │   ├── composition.compact
 │   ├── agent-registry/index.ts     # Barrel files (CompiledContract)
-│   ├── marketplace/index.ts
-│   ├── payments/index.ts
-│   ├── composition/index.ts
-│   └── managed/                    # Compiler output (circuits + keys)
+│   ├── managed/                    # Compiler output (circuits + keys)
+├── demo/                           # React frontend
+│   ├── src/
+│   │   ├── App.tsx                 # Main UI with wallet + contract interaction
+│   │   ├── wallet.ts               # Lace wallet connect/disconnect
+│   │   ├── contracts.ts            # Deploy + circuit calls via 1AM
+│   │   └── compiledContract.ts     # Compiled contract wrapper
+│   └── public/contract/            # ZK assets served via HTTP
 ├── src/
 │   ├── config.ts                   # Network configuration
 │   ├── wallet.ts                   # Wallet provider setup
 │   ├── providers.ts                # Midnight provider bindings
-│   ├── deploy-testnet.ts           # Testnet deployment script
 │   └── test/
 │       ├── agent-registry.test.ts  # 2 tests
 │       ├── marketplace.test.ts     # 2 tests
 │       ├── payments.test.ts        # 2 tests
 │       └── composition.test.ts     # 2 tests
 ├── compose.yml                     # Docker devnet
-├── package.json
-├── tsconfig.json
-└── vitest.config.ts
+└── package.json
 ```
 
-## Architecture
+## Screenshots
 
-### Privacy Patterns
+### Compile Output
+![Compile Output](public/screenshot-2026-07-20_13-15-06.png)
+
+### Contract Deployed with Address
+![Deploy Output](public/screenshot-2026-07-20_13-22-32.png)
+
+## Privacy Patterns
 
 1. **Commitment-Based Agent Registration**
    - Agent capabilities hidden on-chain via `persistentCommit`
