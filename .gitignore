@@ -1,5 +1,4 @@
 node_modules/
-contracts/managed/
 logs/
 midnight-level-db/
 *.log

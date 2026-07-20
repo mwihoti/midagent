@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../",
+  "sources": ["agent-registry.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EASA;;;;;;;;;;;;;MAIA,AAAA,aAIC;;;;;cAJ4B,SAAkB;;;;;;;;;;;;;;;;;;yCAAlB,SAAkB;;;;;;;;;+CAAlB,SAAkB;;;OAI9C;MAED,AAAA,cAEC;;;;;cAF6B,SAAkB;;;;;;;;;;;;;;;;;;yCAAlB,SAAkB;;;;;;;;;gDAAlB,SAAkB;;;OAE/C;;;;;;;;;;GAVA;EAFD;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;IALA;;;;;;;;;;yEAAgD;IAChD;;;;;;;;;yEAAmC;UAKjC,KAAU;IAAV;;;;;;;2HAAA,KAAU;;yEAAA;;;;;;;GACX;EAJD,AAAA,oBAAuC;;0DAAvC,iBAAuC;;;;;;;;;;;;;;GAAA;EAMvC,AAAA,gBAIC,4BAJ4B,SAAkB;UACvC,MAA0B;IAChC;;;;;;;;;;2HAAuB,SAAO;;;2HAAY,MAAI;;;wEAAxC;UACN,KAAU;;;;;6CAAa;;;;;;;;;;;kHAAU;;;IAAjC;;;;;;;2HAAA,KAAU;;yEAAA;;GACX;EAED,AAAA,iBAEC,4BAF6B,SAAkB;oDACvC;;;;;;;;;;;2KAAuB,SAAO;;;;yHAAxB;;;GACd;;;;;;;;;;;;;;;;IAjBD;;;;;uCAAA;;;;;;;;;;;;;;;;4GAAgD;;;;;;uCAAhD;;;;;;;;;;;;4GAAgD;;;;;;;;;;;;;;uCAAhD;;;;;;;;;;;;;;;4GAAgD;;;;;;;;;;;;;;uCAAhD;;;;;;;;;;;;;;;;;4GAAgD;;;;;;;;;KAAA;IAChD;qCAAA;;;;;;;;;;;0GAAmC;KAAA;;;;;;;;;;;;"
+}

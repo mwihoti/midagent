@@ -1,48 +1,98 @@
 # Midnight AI Agent Marketplace
 
-A privacy-focused platform for buying, selling, and composing AI agents on Midnight Network.
+A privacy-focused platform for buying, selling, and composing AI agents on Midnight Network. Agents register with hidden capabilities via ZK commitments, buyers submit shielded intents, and payments flow through hybrid escrow — all without revealing sensitive data on-chain.
 
-## Features
+## Product Idea
 
-- **Shielded Agent Registration** — Register AI agents with hidden capabilities
-- **Privacy-Preserving Intent Matching** — Find agents without revealing full requirements
-- **Hybrid Payments** — Per-call, subscription, and outcome-based payments (all shielded)
-- **DAG-Based Composition** — Chain multiple agents in complex workflows
+Midnight Agent Marketplace enables privacy-preserving AI agent discovery and execution. Agent providers register their models on-chain with capability commitments (hiding model details, pricing, and performance metrics), while buyers submit encrypted intent queries that match against providers using ZK proofs — ensuring neither party reveals their full requirements or offerings until both agree to a transaction. The platform supports per-call micropayments, subscription access, and outcome-based pricing through shielded escrow, and chains multiple agents via DAG workflows for complex multi-step AI pipelines.
 
 ## Smart Contracts
 
-| Contract | Purpose |
-|----------|---------|
-| `agent-registry.compact` | Store agents with commitment-based ownership |
-| `marketplace.compact` | Shielded intent matching with ZK proofs |
-| `payments.compact` | Escrow and subscription payments |
-| `composition.compact` | DAG workflow execution |
+| Contract | Circuits | Purpose |
+|----------|----------|---------|
+| `agent-registry.compact` | `registerAgent`, `proveOwnership` | Register agents with commitment-based ownership |
+| `marketplace.compact` | `submitIntent`, `matchIntent`, `cancelIntent` | Shielded intent matching with ZK proofs |
+| `payments.compact` | `createEscrow`, `releaseEscrow`, `cancelEscrow`, `createSubscription`, `revokeSubscription` | Hybrid escrow and subscription payments |
+| `composition.compact` | `registerWorkflow`, `completeStep`, `cancelWorkflow` | DAG workflow execution with step tracking |
 
-## Quick Start
+## Public State vs Private Witness
+
+In Midnight's Compact language, contract state is split into **public** and **private**:
+
+- **Public state** (ledger variables declared with `ledger`): Visible to all network participants. Used for counts, commitments, hashes, and other non-sensitive data that must be verified on-chain. For example, `agentCount` in the agent registry is public — everyone can see how many agents are registered, but not who they are or what they do.
+
+- **Private witness** (declared with `witness`): Data provided off-chain by the contract executor, never stored on-chain. Witnesses are inputs to circuits that prove computation was done correctly without revealing the data. For example, `agentCapabilities` is a witness — the agent provider supplies their capability hash, the circuit proves it matches a registered commitment, but the actual capabilities string is never published.
+
+This separation is what makes Midnight's privacy model powerful: public state ensures verifiability and consensus, while private witnesses keep sensitive business logic (pricing, model details, user preferences) shielded from observers.
+
+## Setup Instructions
 
 ### Prerequisites
 
 - Node.js 22+
-- Docker
-- Compact compiler (installed automatically)
+- Docker (for local devnet)
+- Compact compiler (`compact` CLI)
 
-### Setup
+### Install
 
 ```bash
+# Clone the repo
+git clone git@github.com:mwihoti/midagent.git
+cd midagent
+
 # Install dependencies
 yarn install
+```
 
-# Compile contracts
+### Compile Contracts
+
+```bash
 yarn compile
+```
 
-# Start local devnet
+Output:
+
+```
+Compiling 2 circuits:        # agent-registry
+Compiling 3 circuits:        # marketplace
+Compiling 5 circuits:        # payments
+Compiling 3 circuits:        # composition
+```
+
+Generated `contracts/managed/` directory contains:
+- `contract/index.js` — TypeScript contract class with circuit wrappers
+- `keys/` — Proving and verification keys for each circuit
+- `zkir/` — ZK intermediate representations
+
+### Run Tests (Local Devnet)
+
+```bash
+# Start local devnet (Docker)
 yarn env:up
 
-# Run tests
+# Run all tests
 yarn test:local
 
-# Tear down
+# Run a specific test
+MIDNIGHT_NETWORK=local NODE_OPTIONS='--experimental-vm-modules' \
+  npx vitest run src/test/agent-registry.test.ts
+
+# Tear down devnet
 yarn env:down
+```
+
+### Deploy to Testnet (Preview/Preprod)
+
+```bash
+# Deploy to preprod testnet
+MN_TEST_ENVIRONMENT=preprod NODE_OPTIONS='--experimental-vm-modules' \
+  npx tsx src/deploy-testnet.ts
+```
+
+The script will output a contract address like:
+
+```
+Contract deployed to preprod: af012c8575cc97b9ee9a4c0bb5ac985130c44cfab6a0be14284d02e6c91c7e78
 ```
 
 ## Project Structure
@@ -50,49 +100,29 @@ yarn env:down
 ```
 agent/
 ├── contracts/
-│   ├── agent-registry.compact
+│   ├── agent-registry.compact      # Source contracts
 │   ├── marketplace.compact
 │   ├── payments.compact
 │   ├── composition.compact
-│   └── managed/              # Compiler output
+│   ├── agent-registry/index.ts     # Barrel files (CompiledContract)
+│   ├── marketplace/index.ts
+│   ├── payments/index.ts
+│   ├── composition/index.ts
+│   └── managed/                    # Compiler output (circuits + keys)
 ├── src/
-│   ├── config.ts
-│   ├── wallet.ts
-│   ├── providers.ts
+│   ├── config.ts                   # Network configuration
+│   ├── wallet.ts                   # Wallet provider setup
+│   ├── providers.ts                # Midnight provider bindings
+│   ├── deploy-testnet.ts           # Testnet deployment script
 │   └── test/
-│       ├── agent-registry.test.ts
-│       ├── marketplace.test.ts
-│       ├── payments.test.ts
-│       └── composition.test.ts
-├── compose.yml
+│       ├── agent-registry.test.ts  # 2 tests
+│       ├── marketplace.test.ts     # 2 tests
+│       ├── payments.test.ts        # 2 tests
+│       └── composition.test.ts     # 2 tests
+├── compose.yml                     # Docker devnet
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts
-```
-
-## Development
-
-### Compile Contracts
-
-```bash
-cd contracts
-compact compile agent-registry.compact managed/agent-registry
-compact compile marketplace.compact managed/marketplace
-compact compile payments.compact managed/payments
-compact compile composition.compact managed/composition
-```
-
-### Run Tests
-
-```bash
-# Start local devnet first
-yarn env:up
-
-# Run tests
-yarn test:local
-
-# Or run specific test
-MIDNIGHT_NETWORK=local NODE_OPTIONS='--experimental-vm-modules' vitest run src/test/agent-registry.test.ts
 ```
 
 ## Architecture
@@ -101,20 +131,21 @@ MIDNIGHT_NETWORK=local NODE_OPTIONS='--experimental-vm-modules' vitest run src/t
 
 1. **Commitment-Based Agent Registration**
    - Agent capabilities hidden on-chain via `persistentCommit`
-   - Ownership verifiable via ZK proofs
+   - Ownership verifiable via ZK proofs (`proveOwnership` circuit)
 
 2. **Shielded Intent Matching**
    - Buyer requirements hidden via commitments
    - Capability proofs verify match without revealing details
 
 3. **Hybrid Payment System**
-   - Per-call micropayments
+   - Per-call micropayments via escrow
    - Subscription access passes
    - Outcome-based payments
 
 4. **DAG Workflow Execution**
    - Workflow definitions hidden on-chain
    - Step completion tracked via commitments
+   - Supports branching and conditional execution
 
 ## License
 
