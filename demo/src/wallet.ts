@@ -1,4 +1,5 @@
 import '@midnight-ntwrk/dapp-connector-api';
+import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
 export interface WalletInfo {
   name: string;
@@ -34,10 +35,17 @@ export async function connectWallet(network: string = 'preprod'): Promise<{
     api.getShieldedAddresses(),
   ]);
 
+  setNetworkId(config.networkId);
+
   return {
     api,
     config,
     unshieldedAddress: unshieldedResult.unshieldedAddress,
     shieldedAddress: shieldedResult.shieldedAddress,
   };
+}
+
+export function createSession(config: any) {
+  setNetworkId(config.networkId);
+  return { config };
 }
