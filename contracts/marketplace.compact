@@ -1,0 +1,39 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export ledger intents: Map<Bytes<32>, Bytes<32>>;
+export ledger matches: Map<Bytes<32>, Vector<2, Bytes<32>>>;
+export ledger intentCount: Uint<64>;
+
+witness intentRequirements(): Bytes<32>;
+witness agentCapabilityProof(): Bytes<64>;
+witness callerAddress(): Bytes<32>;
+
+constructor() {
+  intentCount = 0;
+}
+
+export circuit submitIntent(intentId: Bytes<32>): [] {
+  const reqs = intentRequirements();
+  intents.insert(disclose(intentId), disclose(reqs));
+  intentCount = disclose((intentCount + 1) as Uint<64>);
+}
+
+export circuit matchIntent(intentId: Bytes<32>, agentId: Bytes<32>): [] {
+  assert(intents.member(disclose(intentId)), "intent not found");
+
+  const proof = agentCapabilityProof();
+  assert(verifyCapabilityProof(proof), "invalid capability proof");
+
+  const caller = callerAddress();
+  matches.insert(disclose(intentId), disclose([agentId, disclose(caller)]));
+}
+
+export circuit cancelIntent(intentId: Bytes<32>): [] {
+  assert(intents.member(disclose(intentId)), "intent not found");
+}
+
+pure circuit verifyCapabilityProof(proof: Bytes<64>): Boolean {
+  return true;
+}

@@ -1,0 +1,22 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export ledger agents: Map<Bytes<32>, Bytes<32>>;
+export ledger agentCount: Uint<64>;
+
+witness agentCapabilities(): Bytes<32>;
+
+constructor() {
+  agentCount = 0;
+}
+
+export circuit registerAgent(agentId: Bytes<32>): [] {
+  const caps = agentCapabilities();
+  agents.insert(disclose(agentId), disclose(caps));
+  agentCount = disclose((agentCount + 1) as Uint<64>);
+}
+
+export circuit proveOwnership(agentId: Bytes<32>): [] {
+  assert(agents.member(disclose(agentId)), "agent not found");
+}

@@ -1,0 +1,28 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export ledger workflows: Map<Bytes<32>, Bytes<32>>;
+export ledger workflowState: Map<Bytes<32>, Bytes<32>>;
+
+witness workflowDefinition(): Bytes<32>;
+witness stepOutput(): Bytes<32>;
+
+export circuit registerWorkflow(workflowId: Bytes<32>): [] {
+  const dag = workflowDefinition();
+  workflows.insert(disclose(workflowId), disclose(dag));
+}
+
+export circuit completeStep(workflowId: Bytes<32>, stepIndex: Uint<32>): [] {
+  assert(workflows.member(disclose(workflowId)), "workflow not found");
+
+  const output = stepOutput();
+  workflowState.insert(
+    disclose(workflowId),
+    disclose(persistentHash<Vector<2, Bytes<32>>>([disclose(workflowId), output]))
+  );
+}
+
+export circuit cancelWorkflow(workflowId: Bytes<32>): [] {
+  assert(workflows.member(disclose(workflowId)), "workflow not found");
+}

@@ -1,0 +1,33 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export enum PaymentType { PER_CALL, SUBSCRIPTION, OUTCOME_BASED }
+
+export ledger escrows: Map<Bytes<32>, Bytes<32>>;
+export ledger subscriptions: Map<Bytes<32>, Bytes<32>>;
+
+witness escrowDetails(): Bytes<32>;
+witness subscriptionDetails(): Bytes<32>;
+
+export circuit createEscrow(escrowId: Bytes<32>): [] {
+  const details = escrowDetails();
+  escrows.insert(disclose(escrowId), disclose(details));
+}
+
+export circuit releaseEscrow(escrowId: Bytes<32>): [] {
+  assert(escrows.member(disclose(escrowId)), "escrow not found");
+}
+
+export circuit cancelEscrow(escrowId: Bytes<32>): [] {
+  assert(escrows.member(disclose(escrowId)), "escrow not found");
+}
+
+export circuit createSubscription(subId: Bytes<32>): [] {
+  const details = subscriptionDetails();
+  subscriptions.insert(disclose(subId), disclose(details));
+}
+
+export circuit revokeSubscription(subId: Bytes<32>): [] {
+  assert(subscriptions.member(disclose(subId)), "subscription not found");
+}
