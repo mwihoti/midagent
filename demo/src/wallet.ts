@@ -46,11 +46,11 @@ export async function connectWallet(network: string = 'preprod'): Promise<{
   };
 }
 
-export function createSession(config: any) {
+export function createSession(config: any, contractKey: string = 'agent-registry') {
   setNetworkId(config.networkId);
 
   const zkConfigProvider = new FetchZkConfigProvider(
-    new URL('/contract/agent-registry', window.location.origin).toString(),
+    new URL(`/contract/${contractKey}`, window.location.origin).toString(),
     window.fetch.bind(window),
   );
 

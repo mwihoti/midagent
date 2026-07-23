@@ -1,17 +1,23 @@
 import { useState, useCallback } from 'react';
 import './App.css';
+import { CONTRACTS, type ContractKey } from './compiledContract';
 
 type WalletStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+const NETWORKS = ['preview', 'preprod'] as const;
+type Network = (typeof NETWORKS)[number];
 
 function App() {
   const [walletStatus, setWalletStatus] = useState<WalletStatus>('disconnected');
   const [address, setAddress] = useState<string | null>(null);
   const [walletApi, setWalletApi] = useState<any>(null);
-  const [session, setSession] = useState<any>(null);
+  const [config, setConfig] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [contractAddress, setContractAddress] = useState<string | null>(null);
-  const [deploying, setDeploying] = useState(false);
+  const [network, setNetwork] = useState<Network>('preprod');
+  const [selectedContract, setSelectedContract] = useState<ContractKey>('agent-registry');
+  const [deployed, setDeployed] = useState<Record<string, string>>({});
+  const [deploying, setDeploying] = useState<ContractKey | null>(null);
   const [agentId, setAgentId] = useState('');
   const [callingCircuit, setCallingCircuit] = useState(false);
   const [txResult, setTxResult] = useState<string | null>(null);
@@ -21,13 +27,12 @@ function App() {
     setError(null);
 
     try {
-      const { connectWallet, createSession } = await import('./wallet');
+      const { connectWallet } = await import('./wallet');
 
-      const { api, config, unshieldedAddress } = await connectWallet('preprod');
-      const sess = createSession(config);
+      const { api, config: cfg, unshieldedAddress } = await connectWallet(network);
 
       setWalletApi(api);
-      setSession(sess);
+      setConfig(cfg);
       setAddress(unshieldedAddress);
       setWalletStatus('connected');
     } catch (err: any) {
@@ -35,57 +40,71 @@ function App() {
       setError(err.message || 'Failed to connect');
       setWalletStatus('error');
     }
-  }, []);
+  }, [network]);
 
   const handleDisconnect = useCallback(() => {
     setWalletApi(null);
-    setSession(null);
+    setConfig(null);
     setAddress(null);
-    setContractAddress(null);
+    setDeployed({});
     setTxResult(null);
     setWalletStatus('disconnected');
     setError(null);
   }, []);
 
-  const handleDeploy = useCallback(async () => {
-    if (!session || !walletApi) return;
-    setDeploying(true);
-    setError(null);
+  const handleDeploy = useCallback(
+    async (key: ContractKey) => {
+      if (!config || !walletApi) return;
+      setDeploying(key);
+      setError(null);
 
-    try {
-      const { getCompiledContract } = await import('./compiledContract');
-      const { deployContract } = await import('./contracts');
+      try {
+        const { createSession } = await import('./wallet');
+        const { getCompiledContract } = await import('./compiledContract');
+        const { deployContract } = await import('./contracts');
 
-      const compiled = await getCompiledContract();
-      const result = await deployContract(session, walletApi, compiled);
+        // Each contract has its own ZK assets, so build a session scoped to it.
+        const session = createSession(config, key);
+        const compiled = await getCompiledContract(key);
+        const result = await deployContract(session, walletApi, compiled);
 
-      setContractAddress(result.contractAddress);
-      setTxResult(`Deployed! Address: ${result.contractAddress}`);
-    } catch (err: any) {
-      console.error('Deploy error:', err);
-      setError(err.message || 'Deploy failed');
-    } finally {
-      setDeploying(false);
-    }
-  }, [session, walletApi]);
+        setDeployed((prev) => ({ ...prev, [key]: result.contractAddress }));
+        setTxResult(`${CONTRACTS[key].label} deployed at ${result.contractAddress}`);
+      } catch (err: any) {
+        console.error('Deploy error:', err);
+        setError(`${CONTRACTS[key].label}: ${err.message || 'Deploy failed'}`);
+      } finally {
+        setDeploying(null);
+      }
+    },
+    [config, walletApi],
+  );
 
   const handleRegisterAgent = useCallback(async () => {
-    if (!session || !walletApi || !contractAddress || !agentId) return;
+    const contractAddress = deployed['agent-registry'];
+    if (!config || !walletApi || !contractAddress || !agentId) return;
     setCallingCircuit(true);
     setError(null);
 
     try {
+      const { createSession } = await import('./wallet');
       const { getCompiledContract } = await import('./compiledContract');
       const { callCircuit } = await import('./contracts');
 
-      const compiled = await getCompiledContract();
+      const session = createSession(config, 'agent-registry');
+      const compiled = await getCompiledContract('agent-registry');
 
+      // Derive a 32-byte agent id from the text input. The agent's actual
+      // capabilities are supplied as a ZK *witness* (see compiledContract.ts) —
+      // they are proven to match the on-chain commitment without ever being sent
+      // to the chain. That is the observable privacy behavior.
       const agentIdBytes = new Uint8Array(32);
-      const encoder = new TextEncoder();
-      const idBytes = encoder.encode(agentId.padEnd(32, '\0'));
+      const idBytes = new TextEncoder().encode(agentId.padEnd(32, '\0'));
       agentIdBytes.set(idBytes.slice(0, 32));
 
-      const callData = await callCircuit(
+      // callCircuit builds the unproven tx, proves it (ZK), balances the dust
+      // fee, and submits — returning the on-chain transaction id.
+      const { txId } = await callCircuit(
         session,
         walletApi,
         compiled,
@@ -94,53 +113,16 @@ function App() {
         [agentIdBytes],
       );
 
-      const txHex = Array.from(
-        callData.private.unprovenTx.serialize(),
-        (b: number) => b.toString(16).padStart(2, '0'),
-      ).join('');
-
-      const provingProvider = await walletApi.getProvingProvider(
-        session.zkConfigProvider,
+      setTxResult(
+        `Agent "${agentId}" registered — capabilities proven, never revealed. Tx: ${txId}`,
       );
-
-      const { CostModel } = await import('@midnight-ntwrk/ledger-v8');
-      const provenTx = await callData.private.unprovenTx.prove(
-        provingProvider,
-        CostModel.initialCostModel(),
-      );
-
-      const balancedHex = await walletApi.balanceUnsealedTransaction(
-        Array.from(provenTx.serialize(), (b: number) =>
-          b.toString(16).padStart(2, '0'),
-        ).join(''),
-      );
-
-      if (!balancedHex?.tx) throw new Error('Balance failed');
-
-      const { Transaction } = await import('@midnight-ntwrk/ledger-v8');
-      const finalTx = Transaction.deserialize(
-        'signature',
-        'proof',
-        'binding',
-        Uint8Array.from(
-          balancedHex.tx.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)),
-        ),
-      );
-
-      const txId = await walletApi.submitTransaction(
-        Array.from(finalTx.serialize(), (b: number) =>
-          b.toString(16).padStart(2, '0'),
-        ).join(''),
-      );
-
-      setTxResult(`Agent registered! TxId: ${txId}`);
     } catch (err: any) {
       console.error('Call error:', err);
       setError(err.message || 'Circuit call failed');
     } finally {
       setCallingCircuit(false);
     }
-  }, [session, walletApi, contractAddress, agentId]);
+  }, [config, walletApi, deployed, agentId]);
 
   return (
     <div className="app">
@@ -153,9 +135,23 @@ function App() {
         <section className="card wallet-card">
           <h2>Wallet</h2>
           {walletStatus === 'disconnected' && (
-            <button className="btn primary" onClick={handleConnect}>
-              Connect Lace Wallet
-            </button>
+            <div className="input-group">
+              <label htmlFor="network">Network</label>
+              <select
+                id="network"
+                value={network}
+                onChange={(e) => setNetwork(e.target.value as Network)}
+              >
+                {NETWORKS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <button className="btn primary" onClick={handleConnect}>
+                Connect Wallet ({network})
+              </button>
+            </div>
           )}
           {walletStatus === 'connecting' && (
             <p className="status">Connecting...</p>
@@ -185,31 +181,48 @@ function App() {
 
         {walletStatus === 'connected' && (
           <section className="card deploy-card">
-            <h2>Deploy Contract</h2>
+            <h2>Deploy Contracts</h2>
             <p className="description">
-              Deploy the Agent Registry contract to Midnight Preprod network.
+              Deploy the marketplace contracts to Midnight {network}. Each
+              contract deploys independently and gets its own on-chain address.
             </p>
-            <button
-              className="btn primary"
-              onClick={handleDeploy}
-              disabled={deploying || !!contractAddress}
-            >
-              {deploying
-                ? 'Deploying...'
-                : contractAddress
-                  ? 'Deployed'
-                  : 'Deploy to Preprod'}
-            </button>
-            {contractAddress && (
-              <div className="contract-info">
+            <div className="input-group">
+              <label htmlFor="contract">Contract</label>
+              <select
+                id="contract"
+                value={selectedContract}
+                onChange={(e) => setSelectedContract(e.target.value as ContractKey)}
+              >
+                {(Object.keys(CONTRACTS) as ContractKey[]).map((k) => (
+                  <option key={k} value={k}>
+                    {CONTRACTS[k].label}
+                    {deployed[k] ? ' ✓' : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn primary"
+                onClick={() => handleDeploy(selectedContract)}
+                disabled={deploying !== null || !!deployed[selectedContract]}
+              >
+                {deploying === selectedContract
+                  ? 'Deploying…'
+                  : deployed[selectedContract]
+                    ? 'Deployed'
+                    : `Deploy ${CONTRACTS[selectedContract].label}`}
+              </button>
+            </div>
+
+            {(Object.keys(deployed) as ContractKey[]).map((k) => (
+              <div className="contract-info" key={k}>
                 <p>
-                  <span className="label">Contract Address:</span>
+                  <span className="label">{CONTRACTS[k].label}:</span>
                 </p>
-                <p className="contract-address" title={contractAddress}>
-                  {contractAddress}
+                <p className="contract-address" title={deployed[k]}>
+                  {deployed[k]}
                 </p>
                 <a
-                  href={`https://explorer.preprod.midnight.network/contract/${contractAddress}`}
+                  href={`https://explorer.${network}.midnight.network/contract/${deployed[k]}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="explorer-link"
@@ -217,11 +230,11 @@ function App() {
                   View on Explorer
                 </a>
               </div>
-            )}
+            ))}
           </section>
         )}
 
-        {walletStatus === 'connected' && contractAddress && (
+        {walletStatus === 'connected' && deployed['agent-registry'] && (
           <section className="card circuit-card">
             <h2>Register Agent</h2>
             <p className="description">
