@@ -81,20 +81,61 @@ MIDNIGHT_NETWORK=local NODE_OPTIONS='--experimental-vm-modules' \
 yarn env:down
 ```
 
-### Frontend (Lace Wallet)
+### Frontend DApp (1AM / Lace wallet)
+
+The `demo/` React app connects a Midnight browser wallet (1AM or Lace) and,
+entirely from the browser, lets you:
+
+- **Connect / disconnect** the wallet (`src/wallet.ts`).
+- **Deploy** any of the four contracts to a selected network (Preview or
+  Preprod) — each gets its own on-chain address with an explorer link.
+- **Call a circuit** (`registerAgent`) and see the result — the agent's
+  capabilities are supplied as a ZK **witness**, so they are *proven to match
+  the on-chain commitment without ever being sent to the chain* (the observable
+  privacy behavior).
+- **Manage local private state** via an in-browser private-state provider
+  (`src/contracts.ts`) — contract private state and signing keys stay on the
+  client and never touch the chain.
 
 ```bash
 cd demo
 npm install
-
-# Sync ZK assets to public/
-npm run sync:zk
-
-# Start dev server
-npm run dev
+npm run sync:zk   # copy all four contracts' ZK keys/zkir into public/contract/
+npm run dev       # http://localhost:5173
 ```
 
-Open `http://localhost:5173`. Connect your Lace wallet to deploy contracts and call circuits on preprod.
+Pick the network, click **Connect Wallet**, then **Deploy** and **Register
+Agent**. The wallet performs proving, dust-fee balancing, and submission — no
+local proof server is required for the frontend.
+
+### Deploy the frontend (Vercel)
+
+The app is a static SPA (`demo/vercel.json` included). On Vercel, set the
+project **Root Directory** to `demo`; build command `npm run build`, output
+`dist`. The ZK assets under `demo/public/contract/` are committed so the hosted
+site can fetch them.
+
+## Deployed Contracts (Preview)
+
+Deployed on-chain to Midnight **Preview** via `yarn deploy:preview`
+(`deployments/preview.json`):
+
+| Contract | Address |
+|----------|---------|
+| AgentRegistry | `2c7e31c539ac26b2e720ccf113e420377b8c630b6130df2dc55c90942a4556aa` |
+| Marketplace | `8d9612cf80c65e655fe625f68a9e9bf2e1279340265cd0946fab3439532a7656` |
+| Payments | `fbcae9578c9ede02c6347b1c019ac5bccde5b6fc15a7d4af25c1865fc8db2d0f` |
+| Composition | `21f43e89ffc37b388772acbd592c88d406e30728494da1a8bd0872370598ca7a` |
+
+View any contract at `https://explorer.preview.midnight.network/contract/<address>`.
+
+### CLI deploy notes (dust)
+
+On Preprod/Preview, NIGHT must be **registered for DUST generation** before it
+can pay fees; the deploy script does this automatically and waits for dust to
+accrue. The local **proof server must match `@midnight-ntwrk/ledger-v8`**
+(8.0.3) — a mismatch causes `Custom error 170` (InvalidDustSpendProof); see
+`proof-server.yml`.
 
 ## Project Structure
 
