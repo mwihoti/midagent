@@ -1,7 +1,10 @@
 services:
   proof-server:
-    image: 'midnightntwrk/proof-server:latest'
-    command: ['midnight-proof-server', '-v', '--network', 'preprod']
+    # Pin to match @midnight-ntwrk/ledger-v8 (8.0.3). `latest` is 8.1.0, which
+    # produces dust fee proofs the 8.0.3 node rejects (Custom error 170 =
+    # InvalidDustSpendProof). Proof server and ledger must be on the same line.
+    image: 'midnightntwrk/proof-server:8.0.3'
+    command: ['midnight-proof-server', '-v', '--network', 'preview']
     ports:
       - '127.0.0.1:6300:6300'
     environment:
