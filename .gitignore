@@ -4,3 +4,8 @@ midnight-level-db/
 *.log
 dist/
 .DS_Store
+
+# Secrets — never commit the wallet seed phrase
+.env
+.env.*
+!.env.example
