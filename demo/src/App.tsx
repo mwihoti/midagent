@@ -1,6 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import './App.css';
 import { CONTRACTS, type ContractKey } from './compiledContract';
+
+interface WalletChoice {
+  key: string;
+  label: string;
+}
 
 type WalletStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -15,7 +20,29 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   const [network, setNetwork] = useState<Network>('preprod');
+  const [wallets, setWallets] = useState<WalletChoice[]>([]);
+  const [selectedWallet, setSelectedWallet] = useState<string>('');
+  const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
   const [selectedContract, setSelectedContract] = useState<ContractKey>('agent-registry');
+
+  // Wallet extensions inject themselves into window.midnight asynchronously, so
+  // poll briefly to discover every available wallet (1AM, Lace, …).
+  useEffect(() => {
+    let cancelled = false;
+    let tries = 0;
+    const detect = async () => {
+      const { listWallets } = await import('./wallet');
+      const found = listWallets().map((w) => ({ key: w.key, label: w.label }));
+      if (cancelled) return;
+      setWallets(found);
+      setSelectedWallet((cur) => cur || found[0]?.key || '');
+      if (found.length === 0 && tries++ < 12) setTimeout(detect, 500);
+    };
+    detect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [deployed, setDeployed] = useState<Record<string, string>>({});
   const [deploying, setDeploying] = useState<ContractKey | null>(null);
   const [agentId, setAgentId] = useState('');
@@ -29,23 +56,26 @@ function App() {
     try {
       const { connectWallet } = await import('./wallet');
 
-      const { api, config: cfg, unshieldedAddress } = await connectWallet(network);
+      const { api, config: cfg, unshieldedAddress, walletLabel } =
+        await connectWallet(network, selectedWallet || undefined);
 
       setWalletApi(api);
       setConfig(cfg);
       setAddress(unshieldedAddress);
+      setConnectedWallet(walletLabel);
       setWalletStatus('connected');
     } catch (err: any) {
       console.error('Connect error:', err);
       setError(err.message || 'Failed to connect');
       setWalletStatus('error');
     }
-  }, [network]);
+  }, [network, selectedWallet]);
 
   const handleDisconnect = useCallback(() => {
     setWalletApi(null);
     setConfig(null);
     setAddress(null);
+    setConnectedWallet(null);
     setDeployed({});
     setTxResult(null);
     setWalletStatus('disconnected');
@@ -136,6 +166,23 @@ function App() {
           <h2>Wallet</h2>
           {walletStatus === 'disconnected' && (
             <div className="input-group">
+              <label htmlFor="wallet">Wallet</label>
+              <select
+                id="wallet"
+                value={selectedWallet}
+                onChange={(e) => setSelectedWallet(e.target.value)}
+                disabled={wallets.length === 0}
+              >
+                {wallets.length === 0 ? (
+                  <option value="">No wallet detected — install 1AM or Lace</option>
+                ) : (
+                  wallets.map((w) => (
+                    <option key={w.key} value={w.key}>
+                      {w.label}
+                    </option>
+                  ))
+                )}
+              </select>
               <label htmlFor="network">Network</label>
               <select
                 id="network"
@@ -148,8 +195,14 @@ function App() {
                   </option>
                 ))}
               </select>
-              <button className="btn primary" onClick={handleConnect}>
-                Connect Wallet ({network})
+              <button
+                className="btn primary"
+                onClick={handleConnect}
+                disabled={wallets.length === 0}
+              >
+                Connect{' '}
+                {wallets.find((w) => w.key === selectedWallet)?.label ?? 'Wallet'}{' '}
+                ({network})
               </button>
             </div>
           )}
@@ -159,7 +212,7 @@ function App() {
           {walletStatus === 'connected' && (
             <div className="connected-info">
               <p className="address">
-                <span className="label">Address:</span>
+                <span className="label">{connectedWallet ?? 'Wallet'} · {network}</span>
                 <span className="value" title={address || ''}>
                   {address?.slice(0, 20)}...{address?.slice(-10)}
                 </span>
