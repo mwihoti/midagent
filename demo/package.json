@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "sync:zk": "mkdir -p public/contract/agent-registry && cp -r ../contracts/managed/agent-registry/keys public/contract/agent-registry/ && cp -r ../contracts/managed/agent-registry/zkir public/contract/agent-registry/"
+    "sync:zk": "for c in agent-registry marketplace payments composition; do mkdir -p public/contract/$c && cp -r ../contracts/managed/$c/keys public/contract/$c/ && cp -r ../contracts/managed/$c/zkir public/contract/$c/; done"
   },
   "dependencies": {
     "@midnight-ntwrk/compact-js": "2.5.0",
