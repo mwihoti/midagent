@@ -9,6 +9,7 @@
   "scripts": {
     "compile": "cd contracts && compact compile agent-registry.compact managed/agent-registry && compact compile marketplace.compact managed/marketplace && compact compile payments.compact managed/payments && compact compile composition.compact managed/composition",
     "test": "NODE_OPTIONS='--experimental-vm-modules' vitest run",
+    "test:unit": "NODE_OPTIONS='--experimental-vm-modules' vitest run src/test/*.sim.test.ts",
     "test:local": "MIDNIGHT_NETWORK=local yarn test",
     "env:up": "docker compose up -d --wait",
     "env:down": "docker compose down",
