@@ -2,21 +2,35 @@ pragma language_version >= 0.23;
 
 import CompactStandardLibrary;
 
+// Public ledger. `agents` maps an agent id to a *commitment* of its
+// capabilities — never the capabilities themselves. `agentCount` is a public
+// tally so anyone can see how many agents exist without learning who they are.
 export ledger agents: Map<Bytes<32>, Bytes<32>>;
 export ledger agentCount: Uint<64>;
 
+// Private input: the agent's real capabilities. Supplied off-chain, fed into a
+// circuit, and never disclosed to the chain.
 witness agentCapabilities(): Bytes<32>;
 
 constructor() {
   agentCount = 0;
 }
 
+// Register an agent under a public commitment to its private capabilities.
+// We store persistentHash(capabilities) so an observer learns only the
+// commitment, never the capabilities behind it.
 export circuit registerAgent(agentId: Bytes<32>): [] {
   const caps = agentCapabilities();
-  agents.insert(disclose(agentId), disclose(caps));
+  const commitment = persistentHash<Bytes<32>>(caps);
+  agents.insert(disclose(agentId), disclose(commitment));
   agentCount = disclose((agentCount + 1) as Uint<64>);
 }
 
+// Prove ownership of a registered agent by demonstrating knowledge of the
+// capabilities whose commitment is stored on-chain — without revealing them.
 export circuit proveOwnership(agentId: Bytes<32>): [] {
   assert(agents.member(disclose(agentId)), "agent not found");
+  const caps = agentCapabilities();
+  const commitment = persistentHash<Bytes<32>>(caps);
+  assert(agents.lookup(disclose(agentId)) == disclose(commitment), "capabilities do not match commitment");
 }
