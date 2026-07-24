@@ -1,5 +1,11 @@
 # Midnight AI Agent Marketplace
 
+[![CI](https://github.com/mwihoti/midagent/actions/workflows/ci.yml/badge.svg)](https://github.com/mwihoti/midagent/actions/workflows/ci.yml)
+
+> **Level 3 focus — Confidential Credentials.** Agents hold a private capability
+> credential and prove it's valid (and that they own it) without ever revealing
+> it. See [`PROPOSAL.md`](./PROPOSAL.md) and [Privacy model](#privacy-model).
+
 A privacy-preserving marketplace for AI agents, built on **Midnight**. Agents
 register with their capabilities hidden behind ZK commitments, buyers match
 against them without either side revealing its hand, and payments settle through
@@ -93,6 +99,62 @@ Preview and submit on Preprod.
 
 ---
 
+## Privacy model
+
+What an **observer of the chain** can and cannot learn about a registered agent:
+
+| An observer **can** see | An observer **cannot** see |
+|---|---|
+| That an agent exists, and the total `agentCount` | The agent's capabilities (what it actually does) |
+| The agent id used as the map key | The pre-image behind the capability commitment |
+| A `persistentHash` **commitment** of the capabilities | Any way to invert that commitment back to the value |
+| That an ownership proof succeeded | Which capability value satisfied the proof |
+
+The capabilities enter the circuit as a Compact `witness` and are committed with
+`persistentHash` — the commitment is public, the value never is. `proveOwnership`
+re-derives the commitment from the witness and asserts equality, so ownership is
+demonstrated **without disclosure**. This is enforced by a test that asserts the
+raw capabilities are absent from public state (see below).
+
+> Earlier the contract stored `disclose(caps)` — i.e. the capabilities in the
+> clear. That was a real privacy bug; the unit test caught it and the fix (store
+> the commitment) is what makes the disclosure genuinely selective.
+
+## Tests
+
+Fast, deterministic tests run the compiled circuits in-process via the
+compact-runtime simulator — no devnet, no proof server — so CI stays quick and
+reliable (`src/test/agent-registry.sim.test.ts`).
+
+```bash
+yarn test:unit
+```
+
+```
+✓ starts empty with an agent count of zero
+✓ registers an agent and records its commitment publicly
+✓ tracks multiple distinct agents
+✓ lets the owner prove ownership without a revert
+✓ NEVER exposes the raw capabilities in public state (the privacy property)
+
+Test Files  1 passed (1)
+     Tests  5 passed (5)
+```
+
+The heavier end-to-end tests (`src/test/*.test.ts`) run against a local devnet
+via `yarn env:up && yarn test:local`.
+
+## CI/CD
+
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on every push and
+PR to `master`/`main`:
+
+- **test** — installs deps and runs the contract unit tests (`yarn test:unit`).
+- **build** — type-checks and production-builds the DApp (`npm run build`), a
+  real compile step over the frontend + generated contract bindings.
+
+The badge at the top reflects the latest run.
+
 ## Running it
 
 ### Prerequisites
@@ -156,17 +218,19 @@ Deployed and verifiable on **Midnight Preview** (`deployments/preview.json`):
 
 ---
 
-## Submission checklist
+## Submission checklist (Level 3)
 
-- [x] Public GitHub repo with README
-- [x] Wallet connect / disconnect (1AM **and** Lace)
-- [x] Circuit called from the frontend (`registerAgent`)
-- [x] Observable privacy behavior (capabilities proven, never revealed)
-- [x] Local private-state management
-- [x] ≥ 8 meaningful commits
+- [x] Fully functional dApp that meaningfully uses Midnight's privacy model
+- [x] Chosen idea from the list — **Confidential Credentials** ([`PROPOSAL.md`](./PROPOSAL.md))
+- [x] ≥ 3 tests passing (5 unit tests, `yarn test:unit`)
+- [x] CI/CD pipeline (workflow file + badge above)
+- [x] README "privacy model" section (what an observer can/cannot learn)
+- [x] ≥ 10 meaningful commits
 - [ ] Live demo link — `<VERCEL_URL_HERE>`
-- [ ] Preprod contract address (verifiable) — see above
-- [ ] Demo video (wallet connect + a successful circuit call) — `<VIDEO_URL_HERE>`
+- [ ] Preprod contract address (verifiable) — see [Deployed contracts](#deployed-contracts)
+- [ ] Screenshot: test output (3+ passing)
+- [ ] Demo video (~1 min) showing full functionality
+- [ ] Product proposal submitted for approval (from [`PROPOSAL.md`](./PROPOSAL.md))
 
 ---
 
