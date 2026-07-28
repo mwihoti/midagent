@@ -2,6 +2,9 @@ pragma language_version >= 0.23;
 
 import CompactStandardLibrary;
 
+// Public ledger. `workflows` holds a *commitment* to the private DAG definition;
+// `workflowState` holds a domain-separated hash of each step's output. The shape
+// of the workflow and the data flowing through it both stay off-chain.
 export ledger workflows: Map<Bytes<32>, Bytes<32>>;
 export ledger workflowState: Map<Bytes<32>, Bytes<32>>;
 
@@ -10,7 +13,8 @@ witness stepOutput(): Bytes<32>;
 
 export circuit registerWorkflow(workflowId: Bytes<32>): [] {
   const dag = workflowDefinition();
-  workflows.insert(disclose(workflowId), disclose(dag));
+  const dagCommitment = persistentHash<Bytes<32>>(dag);
+  workflows.insert(disclose(workflowId), disclose(dagCommitment));
 }
 
 export circuit completeStep(workflowId: Bytes<32>, stepIndex: Uint<32>): [] {

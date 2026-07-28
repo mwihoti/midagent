@@ -4,6 +4,9 @@ import CompactStandardLibrary;
 
 export enum PaymentType { PER_CALL, SUBSCRIPTION, OUTCOME_BASED }
 
+// Public ledger. Both maps hold *commitments* to private payment details —
+// amounts, payer and payee stay off-chain. An observer learns that an escrow or
+// subscription exists, never its terms.
 export ledger escrows: Map<Bytes<32>, Bytes<32>>;
 export ledger subscriptions: Map<Bytes<32>, Bytes<32>>;
 
@@ -12,7 +15,8 @@ witness subscriptionDetails(): Bytes<32>;
 
 export circuit createEscrow(escrowId: Bytes<32>): [] {
   const details = escrowDetails();
-  escrows.insert(disclose(escrowId), disclose(details));
+  const detailsCommitment = persistentHash<Bytes<32>>(details);
+  escrows.insert(disclose(escrowId), disclose(detailsCommitment));
 }
 
 export circuit releaseEscrow(escrowId: Bytes<32>): [] {
@@ -25,7 +29,8 @@ export circuit cancelEscrow(escrowId: Bytes<32>): [] {
 
 export circuit createSubscription(subId: Bytes<32>): [] {
   const details = subscriptionDetails();
-  subscriptions.insert(disclose(subId), disclose(details));
+  const detailsCommitment = persistentHash<Bytes<32>>(details);
+  subscriptions.insert(disclose(subId), disclose(detailsCommitment));
 }
 
 export circuit revokeSubscription(subId: Bytes<32>): [] {

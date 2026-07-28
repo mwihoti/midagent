@@ -2,6 +2,10 @@ pragma language_version >= 0.23;
 
 import CompactStandardLibrary;
 
+// Public ledger. `intents` maps an intent id to a *commitment* of the buyer's
+// requirements — never the requirements themselves. `matches` records who was
+// matched, storing a commitment of the matcher's address rather than the raw
+// address, so matching does not de-anonymize the caller.
 export ledger intents: Map<Bytes<32>, Bytes<32>>;
 export ledger matches: Map<Bytes<32>, Vector<2, Bytes<32>>>;
 export ledger intentCount: Uint<64>;
@@ -14,9 +18,12 @@ constructor() {
   intentCount = 0;
 }
 
+// Publish an intent under a commitment to the buyer's private requirements.
+// An observer learns that an intent exists, never what it asks for.
 export circuit submitIntent(intentId: Bytes<32>): [] {
   const reqs = intentRequirements();
-  intents.insert(disclose(intentId), disclose(reqs));
+  const reqsCommitment = persistentHash<Bytes<32>>(reqs);
+  intents.insert(disclose(intentId), disclose(reqsCommitment));
   intentCount = disclose((intentCount + 1) as Uint<64>);
 }
 
@@ -26,14 +33,22 @@ export circuit matchIntent(intentId: Bytes<32>, agentId: Bytes<32>): [] {
   const proof = agentCapabilityProof();
   assert(verifyCapabilityProof(proof), "invalid capability proof");
 
+  // Store a commitment to the caller, not the caller itself. The agent id is a
+  // public circuit input, so it is recorded in the clear.
   const caller = callerAddress();
-  matches.insert(disclose(intentId), disclose([agentId, disclose(caller)]));
+  const callerCommitment = persistentHash<Bytes<32>>(caller);
+  matches.insert(disclose(intentId), disclose([agentId, callerCommitment]));
 }
 
 export circuit cancelIntent(intentId: Bytes<32>): [] {
   assert(intents.member(disclose(intentId)), "intent not found");
 }
 
+// PLACEHOLDER — not a real verification. This returns true unconditionally, so
+// the assert in matchIntent can never fail. Real verification needs to check the
+// proof against the agent's capability commitment held in the agent-registry
+// contract, which requires a cross-contract read that is not wired up yet.
+// Do not treat this as a security control.
 pure circuit verifyCapabilityProof(proof: Bytes<64>): Boolean {
   return true;
 }

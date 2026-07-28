@@ -79,14 +79,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('createEscrow',
                                      'argument 1 (as invoked from Typescript)',
-                                     'payments.compact line 13 char 1',
+                                     'payments.compact line 16 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(escrowId_0.buffer instanceof ArrayBuffer && escrowId_0.BYTES_PER_ELEMENT === 1 && escrowId_0.length === 32)) {
           __compactRuntime.typeError('createEscrow',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'payments.compact line 13 char 1',
+                                     'payments.compact line 16 char 1',
                                      'Bytes<32>',
                                      escrowId_0)
         }
@@ -115,14 +115,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('releaseEscrow',
                                      'argument 1 (as invoked from Typescript)',
-                                     'payments.compact line 18 char 1',
+                                     'payments.compact line 22 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(escrowId_0.buffer instanceof ArrayBuffer && escrowId_0.BYTES_PER_ELEMENT === 1 && escrowId_0.length === 32)) {
           __compactRuntime.typeError('releaseEscrow',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'payments.compact line 18 char 1',
+                                     'payments.compact line 22 char 1',
                                      'Bytes<32>',
                                      escrowId_0)
         }
@@ -151,14 +151,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('cancelEscrow',
                                      'argument 1 (as invoked from Typescript)',
-                                     'payments.compact line 22 char 1',
+                                     'payments.compact line 26 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(escrowId_0.buffer instanceof ArrayBuffer && escrowId_0.BYTES_PER_ELEMENT === 1 && escrowId_0.length === 32)) {
           __compactRuntime.typeError('cancelEscrow',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'payments.compact line 22 char 1',
+                                     'payments.compact line 26 char 1',
                                      'Bytes<32>',
                                      escrowId_0)
         }
@@ -187,14 +187,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('createSubscription',
                                      'argument 1 (as invoked from Typescript)',
-                                     'payments.compact line 26 char 1',
+                                     'payments.compact line 30 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(subId_0.buffer instanceof ArrayBuffer && subId_0.BYTES_PER_ELEMENT === 1 && subId_0.length === 32)) {
           __compactRuntime.typeError('createSubscription',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'payments.compact line 26 char 1',
+                                     'payments.compact line 30 char 1',
                                      'Bytes<32>',
                                      subId_0)
         }
@@ -223,14 +223,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('revokeSubscription',
                                      'argument 1 (as invoked from Typescript)',
-                                     'payments.compact line 31 char 1',
+                                     'payments.compact line 36 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(subId_0.buffer instanceof ArrayBuffer && subId_0.BYTES_PER_ELEMENT === 1 && subId_0.length === 32)) {
           __compactRuntime.typeError('revokeSubscription',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'payments.compact line 31 char 1',
+                                     'payments.compact line 36 char 1',
                                      'Bytes<32>',
                                      subId_0)
         }
@@ -329,6 +329,10 @@ export class Contract {
       currentZswapLocalState: context.currentZswapLocalState
     }
   }
+  _persistentHash_0(value_0) {
+    const result_0 = __compactRuntime.persistentHash(_descriptor_0, value_0);
+    return result_0;
+  }
   _escrowDetails_0(context, partialProofData) {
     const witnessContext_0 = __compactRuntime.createWitnessContext(ledger(context.currentQueryContext.state), context.currentPrivateState, context.currentQueryContext.address);
     const [nextPrivateState_0, result_0] = this.witnesses.escrowDetails(witnessContext_0);
@@ -336,7 +340,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('escrowDetails',
                                  'return value',
-                                 'payments.compact line 10 char 1',
+                                 'payments.compact line 13 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -353,7 +357,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('subscriptionDetails',
                                  'return value',
-                                 'payments.compact line 11 char 1',
+                                 'payments.compact line 14 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -365,6 +369,7 @@ export class Contract {
   }
   _createEscrow_0(context, partialProofData, escrowId_0) {
     const details_0 = this._escrowDetails_0(context, partialProofData);
+    const detailsCommitment_0 = this._persistentHash_0(details_0);
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
                                       [
@@ -378,7 +383,7 @@ export class Contract {
                                                  value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(escrowId_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { push: { storage: true,
-                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(details_0),
+                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(detailsCommitment_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { ins: { cached: false, n: 1 } },
                                        { ins: { cached: true, n: 1 } }]);
@@ -426,6 +431,7 @@ export class Contract {
   }
   _createSubscription_0(context, partialProofData, subId_0) {
     const details_0 = this._subscriptionDetails_0(context, partialProofData);
+    const detailsCommitment_0 = this._persistentHash_0(details_0);
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
                                       [
@@ -439,7 +445,7 @@ export class Contract {
                                                  value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(subId_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { push: { storage: true,
-                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(details_0),
+                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(detailsCommitment_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { ins: { cached: false, n: 1 } },
                                        { ins: { cached: true, n: 1 } }]);
@@ -529,7 +535,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'payments.compact line 7 char 1',
+                                     'payments.compact line 10 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -558,7 +564,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'payments.compact line 7 char 1',
+                                     'payments.compact line 10 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -638,7 +644,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'payments.compact line 8 char 1',
+                                     'payments.compact line 11 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -667,7 +673,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'payments.compact line 8 char 1',
+                                     'payments.compact line 11 char 1',
                                      'Bytes<32>',
                                      key_0)
         }

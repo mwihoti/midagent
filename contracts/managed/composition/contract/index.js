@@ -76,14 +76,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('registerWorkflow',
                                      'argument 1 (as invoked from Typescript)',
-                                     'composition.compact line 11 char 1',
+                                     'composition.compact line 14 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(workflowId_0.buffer instanceof ArrayBuffer && workflowId_0.BYTES_PER_ELEMENT === 1 && workflowId_0.length === 32)) {
           __compactRuntime.typeError('registerWorkflow',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'composition.compact line 11 char 1',
+                                     'composition.compact line 14 char 1',
                                      'Bytes<32>',
                                      workflowId_0)
         }
@@ -113,21 +113,21 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('completeStep',
                                      'argument 1 (as invoked from Typescript)',
-                                     'composition.compact line 16 char 1',
+                                     'composition.compact line 20 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(workflowId_0.buffer instanceof ArrayBuffer && workflowId_0.BYTES_PER_ELEMENT === 1 && workflowId_0.length === 32)) {
           __compactRuntime.typeError('completeStep',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'composition.compact line 16 char 1',
+                                     'composition.compact line 20 char 1',
                                      'Bytes<32>',
                                      workflowId_0)
         }
         if (!(typeof(stepIndex_0) === 'bigint' && stepIndex_0 >= 0n && stepIndex_0 <= 4294967295n)) {
           __compactRuntime.typeError('completeStep',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'composition.compact line 16 char 1',
+                                     'composition.compact line 20 char 1',
                                      'Uint<0..4294967296>',
                                      stepIndex_0)
         }
@@ -157,14 +157,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('cancelWorkflow',
                                      'argument 1 (as invoked from Typescript)',
-                                     'composition.compact line 26 char 1',
+                                     'composition.compact line 30 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(workflowId_0.buffer instanceof ArrayBuffer && workflowId_0.BYTES_PER_ELEMENT === 1 && workflowId_0.length === 32)) {
           __compactRuntime.typeError('cancelWorkflow',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'composition.compact line 26 char 1',
+                                     'composition.compact line 30 char 1',
                                      'Bytes<32>',
                                      workflowId_0)
         }
@@ -258,6 +258,10 @@ export class Contract {
     }
   }
   _persistentHash_0(value_0) {
+    const result_0 = __compactRuntime.persistentHash(_descriptor_0, value_0);
+    return result_0;
+  }
+  _persistentHash_1(value_0) {
     const result_0 = __compactRuntime.persistentHash(_descriptor_3, value_0);
     return result_0;
   }
@@ -268,7 +272,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('workflowDefinition',
                                  'return value',
-                                 'composition.compact line 8 char 1',
+                                 'composition.compact line 11 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -285,7 +289,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('stepOutput',
                                  'return value',
-                                 'composition.compact line 9 char 1',
+                                 'composition.compact line 12 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -297,6 +301,7 @@ export class Contract {
   }
   _registerWorkflow_0(context, partialProofData, workflowId_0) {
     const dag_0 = this._workflowDefinition_0(context, partialProofData);
+    const dagCommitment_0 = this._persistentHash_0(dag_0);
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
                                       [
@@ -310,7 +315,7 @@ export class Contract {
                                                  value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(workflowId_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { push: { storage: true,
-                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(dag_0),
+                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(dagCommitment_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { ins: { cached: false, n: 1 } },
                                        { ins: { cached: true, n: 1 } }]);
@@ -335,7 +340,7 @@ export class Contract {
                                                                                                   result: undefined } }]).value),
                             'workflow not found');
     const output_0 = this._stepOutput_0(context, partialProofData);
-    const tmp_0 = this._persistentHash_0([workflowId_0, output_0]);
+    const tmp_0 = this._persistentHash_1([workflowId_0, output_0]);
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
                                       [
@@ -439,7 +444,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'composition.compact line 5 char 1',
+                                     'composition.compact line 8 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -468,7 +473,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'composition.compact line 5 char 1',
+                                     'composition.compact line 8 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -548,7 +553,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'composition.compact line 6 char 1',
+                                     'composition.compact line 9 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -577,7 +582,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'composition.compact line 6 char 1',
+                                     'composition.compact line 9 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
