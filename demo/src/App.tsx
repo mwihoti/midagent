@@ -46,7 +46,9 @@ function App() {
   const [deployed, setDeployed] = useState<Record<string, string>>({});
   const [deploying, setDeploying] = useState<ContractKey | null>(null);
   const [agentId, setAgentId] = useState('');
+  const [capabilities, setCapabilities] = useState('');
   const [callingCircuit, setCallingCircuit] = useState(false);
+  const [proving, setProving] = useState(false);
   const [txResult, setTxResult] = useState<string | null>(null);
 
   const handleConnect = useCallback(async () => {
@@ -121,16 +123,16 @@ function App() {
       const { getCompiledContract } = await import('./compiledContract');
       const { callCircuit } = await import('./contracts');
 
+      const { setSecretFromText, toFixedBytes } = await import('./privateState');
+
+      // The capabilities are the SECRET. Save them to local private state before
+      // registering: the circuit reads them as a witness and publishes only
+      // persistentHash(capabilities), and proveOwnership later needs the exact
+      // same bytes to re-derive that commitment. They never leave this browser.
+      setSecretFromText('agentCapabilities', capabilities);
+
       const session = createSession(config, 'agent-registry');
       const compiled = await getCompiledContract('agent-registry');
-
-      // Derive a 32-byte agent id from the text input. The agent's actual
-      // capabilities are supplied as a ZK *witness* (see compiledContract.ts) —
-      // they are proven to match the on-chain commitment without ever being sent
-      // to the chain. That is the observable privacy behavior.
-      const agentIdBytes = new Uint8Array(32);
-      const idBytes = new TextEncoder().encode(agentId.padEnd(32, '\0'));
-      agentIdBytes.set(idBytes.slice(0, 32));
 
       // callCircuit builds the unproven tx, proves it (ZK), balances the dust
       // fee, and submits — returning the on-chain transaction id.
@@ -140,17 +142,64 @@ function App() {
         compiled,
         contractAddress,
         'registerAgent',
-        [agentIdBytes],
+        [toFixedBytes(agentId)],
       );
 
       setTxResult(
-        `Agent "${agentId}" registered — capabilities proven, never revealed. Tx: ${txId}`,
+        `Agent "${agentId}" registered — capabilities committed on-chain, never revealed. Tx: ${txId}`,
       );
     } catch (err: any) {
       console.error('Call error:', err);
       setError(err.message || 'Circuit call failed');
     } finally {
       setCallingCircuit(false);
+    }
+  }, [config, walletApi, deployed, agentId, capabilities]);
+
+  /**
+   * Prove ownership of a registered agent. This is the privacy payoff: the
+   * circuit re-derives persistentHash(capabilities) from the locally-stored
+   * secret and asserts it equals the commitment already on-chain. Succeeding
+   * proves we hold the right capabilities — without transmitting them.
+   */
+  const handleProveOwnership = useCallback(async () => {
+    const contractAddress = deployed['agent-registry'];
+    if (!config || !walletApi || !contractAddress || !agentId) return;
+    setProving(true);
+    setError(null);
+
+    try {
+      const { createSession } = await import('./wallet');
+      const { getCompiledContract } = await import('./compiledContract');
+      const { callCircuit } = await import('./contracts');
+      const { toFixedBytes, hasSecret } = await import('./privateState');
+
+      if (!hasSecret('agentCapabilities')) {
+        throw new Error(
+          'No capabilities stored locally — register an agent from this browser first.',
+        );
+      }
+
+      const session = createSession(config, 'agent-registry');
+      const compiled = await getCompiledContract('agent-registry');
+
+      const { txId } = await callCircuit(
+        session,
+        walletApi,
+        compiled,
+        contractAddress,
+        'proveOwnership',
+        [toFixedBytes(agentId)],
+      );
+
+      setTxResult(
+        `Ownership of "${agentId}" proven without disclosing the capabilities. Tx: ${txId}`,
+      );
+    } catch (err: any) {
+      console.error('Prove error:', err);
+      setError(err.message || 'Ownership proof failed');
+    } finally {
+      setProving(false);
     }
   }, [config, walletApi, deployed, agentId]);
 
@@ -291,11 +340,12 @@ function App() {
           <section className="card circuit-card">
             <h2>Register Agent</h2>
             <p className="description">
-              Register an AI agent on-chain. The agent capabilities are stored as
-              a ZK commitment — hidden from public view but provable.
+              The agent id is public. The capabilities are private — they stay in
+              this browser, and only <code>persistentHash(capabilities)</code> is
+              written on-chain.
             </p>
             <div className="input-group">
-              <label htmlFor="agentId">Agent ID</label>
+              <label htmlFor="agentId">Agent ID (public)</label>
               <input
                 id="agentId"
                 type="text"
@@ -303,13 +353,39 @@ function App() {
                 onChange={(e) => setAgentId(e.target.value)}
                 placeholder="e.g. my-data-analyzer"
               />
+              <label htmlFor="capabilities">Capabilities (private)</label>
+              <input
+                id="capabilities"
+                type="text"
+                value={capabilities}
+                onChange={(e) => setCapabilities(e.target.value)}
+                placeholder="e.g. sentiment-analysis,summarisation"
+              />
             </div>
             <button
               className="btn primary"
               onClick={handleRegisterAgent}
-              disabled={callingCircuit || !agentId}
+              disabled={callingCircuit || proving || !agentId || !capabilities}
             >
-              {callingCircuit ? 'Proving & Submitting...' : 'Register Agent'}
+              {callingCircuit ? 'Proving & Submitting…' : 'Register Agent'}
+            </button>
+          </section>
+        )}
+
+        {walletStatus === 'connected' && deployed['agent-registry'] && (
+          <section className="card circuit-card">
+            <h2>Prove Ownership</h2>
+            <p className="description">
+              Prove you own the agent above by re-deriving its commitment from the
+              capabilities held locally. The chain verifies the match without ever
+              seeing the capabilities — selective disclosure in one click.
+            </p>
+            <button
+              className="btn primary"
+              onClick={handleProveOwnership}
+              disabled={proving || callingCircuit || !agentId}
+            >
+              {proving ? 'Proving…' : 'Prove Ownership'}
             </button>
           </section>
         )}
