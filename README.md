@@ -101,24 +101,40 @@ Preview and submit on Preprod.
 
 ## Privacy model
 
-What an **observer of the chain** can and cannot learn about a registered agent:
+Every private value in this system is a Compact `witness`. It is fed into a
+circuit, committed with `persistentHash`, and **only the commitment is written to
+the chain**. What an observer can and cannot learn, per contract:
 
-| An observer **can** see | An observer **cannot** see |
-|---|---|
-| That an agent exists, and the total `agentCount` | The agent's capabilities (what it actually does) |
-| The agent id used as the map key | The pre-image behind the capability commitment |
-| A `persistentHash` **commitment** of the capabilities | Any way to invert that commitment back to the value |
-| That an ownership proof succeeded | Which capability value satisfied the proof |
+| Contract | An observer **can** see | An observer **cannot** see |
+|---|---|---|
+| `agent-registry` | An agent exists; `agentCount`; its id; a commitment of its capabilities; that an ownership proof succeeded | The capabilities themselves, or which value satisfied the proof |
+| `marketplace` | An intent exists; `intentCount`; that a match happened; which agent id was matched | The buyer's requirements, or the matcher's address |
+| `payments` | An escrow or subscription exists | Its terms — amount, payer, payee |
+| `composition` | A workflow exists; that a step completed | The DAG definition, or any step's output |
 
-The capabilities enter the circuit as a Compact `witness` and are committed with
-`persistentHash` — the commitment is public, the value never is. `proveOwnership`
-re-derives the commitment from the witness and asserts equality, so ownership is
-demonstrated **without disclosure**. This is enforced by a test that asserts the
-raw capabilities are absent from public state (see below).
+`proveOwnership` is the clearest demonstration: it re-derives
+`persistentHash(capabilities)` from the private witness held in the browser and
+asserts equality against the on-chain commitment. Succeeding proves you hold the
+right capabilities **without transmitting them**.
 
-> Earlier the contract stored `disclose(caps)` — i.e. the capabilities in the
-> clear. That was a real privacy bug; the unit test caught it and the fix (store
-> the commitment) is what makes the disclosure genuinely selective.
+The secrets live in [`demo/src/privateState.ts`](./demo/src/privateState.ts) —
+client-side, persisted to `localStorage`, never sent anywhere. The chain holds
+commitments; that store holds the pre-images.
+
+> **This was a real bug, not a hypothetical.** Every contract originally wrote its
+> raw witness straight into public state (`agents.insert(id, disclose(caps))` and
+> four more sites across marketplace/payments/composition — including
+> `callerAddress()`, which de-anonymized whoever matched an intent). A unit test
+> caught the first one; auditing the rest found four more. Storing commitments
+> instead is what makes the disclosure genuinely selective, and there is now a
+> test per contract asserting the raw witness never appears on-chain.
+
+### Known limitation
+
+`marketplace.verifyCapabilityProof()` returns `true` unconditionally — it is a
+placeholder, not a security control, and is commented as such in the source. Real
+verification requires checking the proof against the agent-registry commitment via
+a cross-contract read, which is not wired up yet.
 
 ## Tests
 
@@ -131,15 +147,18 @@ yarn test:unit
 ```
 
 ```
-✓ starts empty with an agent count of zero
-✓ registers an agent and records its commitment publicly
-✓ tracks multiple distinct agents
-✓ lets the owner prove ownership without a revert
-✓ NEVER exposes the raw capabilities in public state (the privacy property)
+✓ src/test/agent-registry.sim.test.ts (5 tests)
+✓ src/test/marketplace.sim.test.ts   (6 tests)
+✓ src/test/payments.sim.test.ts      (6 tests)
+✓ src/test/composition.sim.test.ts   (6 tests)
 
-Test Files  1 passed (1)
-     Tests  5 passed (5)
+Test Files  4 passed (4)
+     Tests  23 passed (23)
 ```
+
+Every contract has a test asserting its private witness never reaches public
+state — e.g. *"NEVER exposes the matcher address in public state"*. Those are the
+regression guards for the disclosure bug described above.
 
 The heavier end-to-end tests (`src/test/*.test.ts`) run against a local devnet
 via `yarn env:up && yarn test:local`.

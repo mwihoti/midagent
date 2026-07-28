@@ -58,10 +58,13 @@ export circuit proveOwnership(agentId: Bytes<32>): [] {
 
 1. Connect a Midnight wallet (1AM or Lace).
 2. Deploy the Agent Registry contract to Preprod.
-3. **Register an agent** — the capabilities are supplied as a ZK witness; the
-   chain records only the commitment. This is the "proven, not shown" moment.
-4. **Prove ownership** — re-prove knowledge of the credential without revealing
-   it.
+3. **Register an agent** — enter a public agent id and its private capabilities.
+   The capabilities are kept in local private state and supplied as a ZK witness;
+   the chain records only `persistentHash(capabilities)`. This is the "proven,
+   not shown" moment.
+4. **Prove ownership** — the circuit re-derives the commitment from the locally
+   held capabilities and asserts it matches what is on-chain, proving knowledge
+   of the credential without revealing it.
 
 ## Success criteria
 
