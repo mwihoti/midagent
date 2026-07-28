@@ -1,10 +1,15 @@
 import { CompiledContract } from '@midnight-ntwrk/compact-js';
+import { getSecret } from './privateState';
 
-// A zeroed witness value of the right byte length. Deploys never invoke witnesses
-// (they only run during circuit calls), but the compiled contract must still be
-// constructed with witness stubs of the correct shape.
-const zero = (n: number) => new Uint8Array(n);
-const w = (n: number) => (ctx: any): [any, Uint8Array] => [ctx.privateState, zero(n)];
+/**
+ * Bind a witness to the locally-stored secret of the same name. The value is
+ * read from local private state at call time, so `proveOwnership` re-derives the
+ * same commitment `registerAgent` published. Nothing here is ever sent on-chain —
+ * only commitments derived from it inside the circuit are.
+ */
+const w =
+  (name: string, size: number) =>
+  (ctx: any): [any, Uint8Array] => [ctx.privateState, getSecret(name, size)];
 
 export type ContractKey =
   | 'agent-registry'
@@ -24,29 +29,35 @@ export const CONTRACTS: Record<ContractKey, ContractDef> = {
     label: 'Agent Registry',
     className: 'AgentRegistryContract',
     load: () => import('../../contracts/managed/agent-registry/contract/index.js'),
-    witnesses: { agentCapabilities: w(32) },
+    witnesses: { agentCapabilities: w('agentCapabilities', 32) },
   },
   marketplace: {
     label: 'Marketplace',
     className: 'MarketplaceContract',
     load: () => import('../../contracts/managed/marketplace/contract/index.js'),
     witnesses: {
-      intentRequirements: w(32),
-      agentCapabilityProof: w(64),
-      callerAddress: w(32),
+      intentRequirements: w('intentRequirements', 32),
+      agentCapabilityProof: w('agentCapabilityProof', 64),
+      callerAddress: w('callerAddress', 32),
     },
   },
   payments: {
     label: 'Payments',
     className: 'PaymentsContract',
     load: () => import('../../contracts/managed/payments/contract/index.js'),
-    witnesses: { escrowDetails: w(32), subscriptionDetails: w(32) },
+    witnesses: {
+      escrowDetails: w('escrowDetails', 32),
+      subscriptionDetails: w('subscriptionDetails', 32),
+    },
   },
   composition: {
     label: 'Composition',
     className: 'CompositionContract',
     load: () => import('../../contracts/managed/composition/contract/index.js'),
-    witnesses: { workflowDefinition: w(32), stepOutput: w(32) },
+    witnesses: {
+      workflowDefinition: w('workflowDefinition', 32),
+      stepOutput: w('stepOutput', 32),
+    },
   },
 };
 
