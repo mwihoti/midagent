@@ -1,0 +1,67 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// Sealed-bid auction — Level 4 MVP: the commit phase.
+//
+// Public ledger: which auctions exist, what phase each is in, how many bids
+// were committed, and the bid commitments themselves. A bid commitment is
+// persistentCommit(amount, nonce) — hiding (the nonce blinds it, so a small
+// amount space cannot be brute-forced) and binding (the bidder cannot open it
+// to a different amount later, which is what makes the Level 5 reveal
+// trustworthy).
+//
+// Private witnesses: the bid amount and its blinding nonce. Neither ever
+// reaches the chain.
+//
+// Phases: 1 = bidding open, 2 = bidding closed. The reveal/winner phase is
+// Level 5 scope.
+export ledger auctionPhase: Map<Bytes<32>, Uint<8>>;
+export ledger bids: Map<Bytes<32>, Bytes<32>>;
+export ledger bidCounts: Map<Bytes<32>, Uint<64>>;
+export ledger auctionCount: Uint<64>;
+
+witness bidAmount(): Bytes<32>;
+witness bidNonce(): Bytes<32>;
+
+constructor() {
+  auctionCount = 0;
+}
+
+// Open a new auction for a job. The auction id is public — it is how bidders
+// find the auction; the job's requirements live behind the marketplace
+// contract's intent commitment, not here.
+export circuit createAuction(auctionId: Bytes<32>): [] {
+  assert(!auctionPhase.member(disclose(auctionId)), "auction already exists");
+  auctionPhase.insert(disclose(auctionId), 1);
+  bidCounts.insert(disclose(auctionId), 0);
+  auctionCount = disclose((auctionCount + 1) as Uint<64>);
+}
+
+// Commit a sealed bid. The bidder supplies amount and nonce privately; only
+// persistentCommit(amount, nonce) is published. bidderId is a caller-chosen
+// pseudonym (one bid per pseudonym per auction).
+export circuit commitBid(auctionId: Bytes<32>, bidderId: Bytes<32>): [] {
+  assert(auctionPhase.member(disclose(auctionId)), "auction not found");
+  assert(auctionPhase.lookup(disclose(auctionId)) == 1, "bidding is closed");
+
+  const amount = bidAmount();
+  const nonce = bidNonce();
+  const commitment = persistentCommit<Bytes<32>>(amount, nonce);
+
+  // One sealed bid per (auction, bidder) slot, under a domain-separated key.
+  const bidKey = persistentHash<Vector<2, Bytes<32>>>([auctionId, bidderId]);
+  assert(!bids.member(disclose(bidKey)), "bid already committed");
+
+  bids.insert(disclose(bidKey), disclose(commitment));
+  const n = bidCounts.lookup(disclose(auctionId));
+  bidCounts.insert(disclose(auctionId), disclose((n + 1) as Uint<64>));
+}
+
+// Close the bidding window. After this no further commitments are accepted;
+// the reveal phase (Level 5) operates on the frozen set of commitments.
+export circuit closeBidding(auctionId: Bytes<32>): [] {
+  assert(auctionPhase.member(disclose(auctionId)), "auction not found");
+  assert(auctionPhase.lookup(disclose(auctionId)) == 1, "bidding already closed");
+  auctionPhase.insert(disclose(auctionId), 2);
+}
