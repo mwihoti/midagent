@@ -7,7 +7,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "compile": "cd contracts && compact compile agent-registry.compact managed/agent-registry && compact compile marketplace.compact managed/marketplace && compact compile payments.compact managed/payments && compact compile composition.compact managed/composition",
+    "compile": "cd contracts && compact compile agent-registry.compact managed/agent-registry && compact compile marketplace.compact managed/marketplace && compact compile payments.compact managed/payments && compact compile composition.compact managed/composition && compact compile auction.compact managed/auction",
     "test": "NODE_OPTIONS='--experimental-vm-modules' vitest run",
     "test:unit": "NODE_OPTIONS='--experimental-vm-modules' vitest run src/test/*.sim.test.ts",
     "test:local": "MIDNIGHT_NETWORK=local yarn test",

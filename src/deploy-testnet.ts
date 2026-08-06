@@ -31,6 +31,10 @@ import {
   CompiledCompositionContract,
   zkConfigPath as compZkPath,
 } from '../contracts/composition/index.js';
+import {
+  CompiledAuctionContract,
+  zkConfigPath as auctionZkPath,
+} from '../contracts/auction/index.js';
 
 // NOTE: Do NOT override globalThis.WebSocket with the `ws` package here. Node 22+
 // provides a native WebSocket that the Polkadot node client (tx submission) needs;
@@ -90,6 +94,7 @@ async function main() {
     { name: 'Marketplace', compiled: CompiledMarketplaceContract, zkPath: mktZkPath },
     { name: 'Payments', compiled: CompiledPaymentsContract, zkPath: payZkPath },
     { name: 'Composition', compiled: CompiledCompositionContract, zkPath: compZkPath },
+    { name: 'Auction', compiled: CompiledAuctionContract, zkPath: auctionZkPath },
   ];
 
   const deployedAddresses: Record<string, string> = {};
