@@ -66,6 +66,19 @@ export function setSecretFromText(name: string, text: string, size = 32): void {
 }
 
 /**
+ * Generate and store a cryptographically random secret — used for blinding
+ * nonces. The nonce must be unpredictable (a guessable nonce lets an observer
+ * brute-force a small bid space against the public commitment) and must persist
+ * locally, because opening the commitment later requires the exact same nonce.
+ */
+export function setRandomSecret(name: string, size = 32): Uint8Array {
+  const bytes = new Uint8Array(size);
+  crypto.getRandomValues(bytes);
+  setSecret(name, bytes);
+  return bytes;
+}
+
+/**
  * Read a secret. Returns zeroes if nothing was stored — a deploy never invokes
  * witnesses, so that path is harmless; a circuit call with no stored secret will
  * simply fail its commitment check, which is the correct behaviour.

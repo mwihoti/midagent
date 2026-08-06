@@ -15,7 +15,8 @@ export type ContractKey =
   | 'agent-registry'
   | 'marketplace'
   | 'payments'
-  | 'composition';
+  | 'composition'
+  | 'auction';
 
 interface ContractDef {
   label: string;
@@ -57,6 +58,15 @@ export const CONTRACTS: Record<ContractKey, ContractDef> = {
     witnesses: {
       workflowDefinition: w('workflowDefinition', 32),
       stepOutput: w('stepOutput', 32),
+    },
+  },
+  auction: {
+    label: 'Sealed-Bid Auction',
+    className: 'AuctionContract',
+    load: () => import('../../contracts/managed/auction/contract/index.js'),
+    witnesses: {
+      bidAmount: w('bidAmount', 32),
+      bidNonce: w('bidNonce', 32),
     },
   },
 };

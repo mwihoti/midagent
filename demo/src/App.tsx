@@ -49,6 +49,11 @@ function App() {
   const [capabilities, setCapabilities] = useState('');
   const [callingCircuit, setCallingCircuit] = useState(false);
   const [proving, setProving] = useState(false);
+
+  const [auctionId, setAuctionId] = useState('');
+  const [bidderId, setBidderId] = useState('');
+  const [bidAmount, setBidAmount] = useState('');
+  const [auctionBusy, setAuctionBusy] = useState<null | 'create' | 'bid' | 'close'>(null);
   const [txResult, setTxResult] = useState<string | null>(null);
 
   const handleConnect = useCallback(async () => {
@@ -202,6 +207,67 @@ function App() {
       setProving(false);
     }
   }, [config, walletApi, deployed, agentId]);
+
+  /**
+   * Sealed-bid auction actions (Level 4 MVP: the commit phase). The bid amount
+   * is a private witness; a random blinding nonce is generated and kept in
+   * local private state, and only persistentCommit(amount, nonce) reaches the
+   * chain. The nonce persists locally because the Level 5 reveal must open the
+   * commitment with the exact same values.
+   */
+  const handleAuction = useCallback(
+    async (action: 'create' | 'bid' | 'close') => {
+      const contractAddress = deployed['auction'];
+      if (!config || !walletApi || !contractAddress || !auctionId) return;
+      if (action === 'bid' && (!bidderId || !bidAmount)) return;
+      setAuctionBusy(action);
+      setError(null);
+
+      try {
+        const { createSession } = await import('./wallet');
+        const { getCompiledContract } = await import('./compiledContract');
+        const { callCircuit } = await import('./contracts');
+        const { toFixedBytes, setSecretFromText, setRandomSecret } = await import(
+          './privateState'
+        );
+
+        const session = createSession(config, 'auction');
+        const compiled = await getCompiledContract('auction');
+
+        if (action === 'create') {
+          const { txId } = await callCircuit(
+            session, walletApi, compiled, contractAddress,
+            'createAuction', [toFixedBytes(auctionId)],
+          );
+          setTxResult(`Auction "${auctionId}" opened for sealed bids. Tx: ${txId}`);
+        } else if (action === 'bid') {
+          // The amount stays in this browser; the nonce is random so equal bids
+          // are indistinguishable on-chain.
+          setSecretFromText('bidAmount', bidAmount);
+          setRandomSecret('bidNonce');
+          const { txId } = await callCircuit(
+            session, walletApi, compiled, contractAddress,
+            'commitBid', [toFixedBytes(auctionId), toFixedBytes(bidderId)],
+          );
+          setTxResult(
+            `Sealed bid committed to "${auctionId}" — amount blinded, never revealed. Tx: ${txId}`,
+          );
+        } else {
+          const { txId } = await callCircuit(
+            session, walletApi, compiled, contractAddress,
+            'closeBidding', [toFixedBytes(auctionId)],
+          );
+          setTxResult(`Bidding closed on "${auctionId}". Tx: ${txId}`);
+        }
+      } catch (err: any) {
+        console.error('Auction error:', err);
+        setError(err.message || `Auction ${action} failed`);
+      } finally {
+        setAuctionBusy(null);
+      }
+    },
+    [config, walletApi, deployed, auctionId, bidderId, bidAmount],
+  );
 
   return (
     <div className="app">
@@ -386,6 +452,68 @@ function App() {
               disabled={proving || callingCircuit || !agentId}
             >
               {proving ? 'Proving…' : 'Prove Ownership'}
+            </button>
+          </section>
+        )}
+
+        {walletStatus === 'connected' && deployed['auction'] && (
+          <section className="card circuit-card">
+            <h2>Sealed-Bid Auction</h2>
+            <p className="description">
+              Open an auction, then commit a sealed bid. The bid amount stays in
+              this browser; the chain records only{' '}
+              <code>persistentCommit(amount, nonce)</code> — blinded, so even
+              equal bids look different. Closing freezes the bid set for the
+              reveal phase.
+            </p>
+            <div className="input-group">
+              <label htmlFor="auctionId">Auction ID (public)</label>
+              <input
+                id="auctionId"
+                type="text"
+                value={auctionId}
+                onChange={(e) => setAuctionId(e.target.value)}
+                placeholder="e.g. summarise-q3-report"
+              />
+              <button
+                className="btn primary"
+                onClick={() => handleAuction('create')}
+                disabled={auctionBusy !== null || !auctionId}
+              >
+                {auctionBusy === 'create' ? 'Opening…' : 'Open Auction'}
+              </button>
+            </div>
+            <div className="input-group">
+              <label htmlFor="bidderId">Bidder ID (public pseudonym)</label>
+              <input
+                id="bidderId"
+                type="text"
+                value={bidderId}
+                onChange={(e) => setBidderId(e.target.value)}
+                placeholder="e.g. provider-7"
+              />
+              <label htmlFor="bidAmount">Bid amount (private)</label>
+              <input
+                id="bidAmount"
+                type="text"
+                value={bidAmount}
+                onChange={(e) => setBidAmount(e.target.value)}
+                placeholder="e.g. 120"
+              />
+              <button
+                className="btn primary"
+                onClick={() => handleAuction('bid')}
+                disabled={auctionBusy !== null || !auctionId || !bidderId || !bidAmount}
+              >
+                {auctionBusy === 'bid' ? 'Committing…' : 'Commit Sealed Bid'}
+              </button>
+            </div>
+            <button
+              className="btn secondary"
+              onClick={() => handleAuction('close')}
+              disabled={auctionBusy !== null || !auctionId}
+            >
+              {auctionBusy === 'close' ? 'Closing…' : 'Close Bidding'}
             </button>
           </section>
         )}
