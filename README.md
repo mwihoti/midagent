@@ -2,9 +2,15 @@
 
 [![CI](https://github.com/mwihoti/midagent/actions/workflows/ci.yml/badge.svg)](https://github.com/mwihoti/midagent/actions/workflows/ci.yml)
 
-> **Level 3 focus — Confidential Credentials.** Agents hold a private capability
-> credential and prove it's valid (and that they own it) without ever revealing
-> it. See [`PROPOSAL.md`](./PROPOSAL.md) and [Privacy model](#privacy-model).
+> **Level 4 — Waxing Gibbous: the Sealed-Bid Auction MVP.** The approved idea
+> from the Level 3 submission, live as a product: providers commit **blinded
+> sealed bids** on-chain (`persistentCommit(amount, nonce)`), the bid set
+> freezes when bidding closes, and no bid amount is ever published. See
+> [The product](#the-product--sealed-bid-agent-auction),
+> [`PROPOSAL.md`](./PROPOSAL.md) and [Privacy model](#privacy-model).
+>
+> **Follow the build:** [@MidnightAgentMkt on X](https://x.com/MidnightAgentMkt)
+> <!-- TODO: replace with your real X handle URL after creating the profile -->
 
 A privacy-preserving marketplace for AI agents, built on **Midnight**. Agents
 register with their capabilities hidden behind ZK commitments, buyers match
@@ -21,18 +27,45 @@ gotchas — the things that actually bit me and how I got around them.
 
 ## What it does
 
-Four Compact contracts model the marketplace:
+Five Compact contracts model the marketplace:
 
 | Contract | Circuits | Purpose |
 |----------|----------|---------|
+| `auction.compact` | `createAuction`, `commitBid`, `closeBidding` | **The product MVP** — sealed-bid auctions with blinded bid commitments |
 | `agent-registry.compact` | `registerAgent`, `proveOwnership` | Register agents behind a capability commitment; prove ownership with ZK |
 | `marketplace.compact` | `submitIntent`, `matchIntent`, `cancelIntent` | Shielded intent matching |
 | `payments.compact` | `createEscrow`, `releaseEscrow`, `cancelEscrow`, `createSubscription`, `revokeSubscription` | Hybrid escrow + subscription payments |
 | `composition.compact` | `registerWorkflow`, `completeStep`, `cancelWorkflow` | DAG workflows that chain agents |
 
 A React DApp (`demo/`) drives the whole thing from the browser: connect a
-wallet, deploy any of the four contracts, and call a circuit — with the wallet
-doing the proving, dust-fee balancing, and submission.
+wallet, deploy any contract, and call its circuits — with the wallet doing the
+proving, dust-fee balancing, and submission.
+
+---
+
+## The product — Sealed-Bid Agent Auction
+
+The MVP implements the **privacy-critical core first**: the commit phase.
+
+A buyer opens an auction for a job. Competing agent providers commit sealed
+bids: the amount and a random blinding nonce stay in the bidder's browser
+(local private state), and the chain records only
+`persistentCommit(amount, nonce)`. Blinding matters — bid spaces are small, so
+an unblinded hash could be brute-forced, and two equal bids would be visibly
+equal. With the nonce, even identical amounts produce different commitments
+(there's a unit test for exactly that). When the buyer closes bidding, the
+commitment set freezes; because commitments are *binding*, nobody can open
+theirs to a different amount in the reveal phase (Level 5), which is what makes
+the eventual winner verifiable.
+
+**Using it (browser):** connect wallet → deploy **Sealed-Bid Auction** → in the
+auction card: *Open Auction* with an id → *Commit Sealed Bid* with a public
+bidder pseudonym and a **private** amount → *Close Bidding*. Watch the ledger:
+bid count goes up, no amount ever appears.
+
+**Phases:** `1` = bidding open, `2` = closed. Reveal + verifiable winner +
+escrow settlement are Level 5 scope; hardening is Level 6 (see
+[`PROPOSAL.md`](./PROPOSAL.md)).
 
 ---
 
@@ -107,6 +140,7 @@ the chain**. What an observer can and cannot learn, per contract:
 
 | Contract | An observer **can** see | An observer **cannot** see |
 |---|---|---|
+| `auction` | An auction exists and its phase; how many bids were committed; the blinded commitments | Any bid amount; whether two bids are equal; the blinding nonces |
 | `agent-registry` | An agent exists; `agentCount`; its id; a commitment of its capabilities; that an ownership proof succeeded | The capabilities themselves, or which value satisfied the proof |
 | `marketplace` | An intent exists; `intentCount`; that a match happened; which agent id was matched | The buyer's requirements, or the matcher's address |
 | `payments` | An escrow or subscription exists | Its terms — amount, payer, payee |
@@ -147,18 +181,22 @@ yarn test:unit
 ```
 
 ```
+✓ src/test/auction.sim.test.ts       (9 tests)
 ✓ src/test/agent-registry.sim.test.ts (5 tests)
 ✓ src/test/marketplace.sim.test.ts   (6 tests)
 ✓ src/test/payments.sim.test.ts      (6 tests)
 ✓ src/test/composition.sim.test.ts   (6 tests)
 
-Test Files  4 passed (4)
-     Tests  23 passed (23)
+Test Files  5 passed (5)
+     Tests  32 passed (32)
 ```
 
 Every contract has a test asserting its private witness never reaches public
-state — e.g. *"NEVER exposes the matcher address in public state"*. Those are the
-regression guards for the disclosure bug described above.
+state — e.g. *"NEVER exposes the bid amount or nonce in public state"*. The
+auction suite also proves the **blinding property**: two bidders committing the
+same amount produce different on-chain commitments, so equal bids are
+indistinguishable. Those are the regression guards for the disclosure bug
+described above.
 
 The heavier end-to-end tests (`src/test/*.test.ts`) run against a local devnet
 via `yarn env:up && yarn test:local`.
@@ -230,26 +268,35 @@ Deployed and verifiable on **Midnight Preview** (`deployments/preview.json`):
 | Composition | `21f43e89ffc37b388772acbd592c88d406e30728494da1a8bd0872370598ca7a` |
 
 > Explorer: `https://explorer.preview.midnight.network/contract/<address>`
+> Note: these Preview addresses predate the privacy fix (commit `0304874`) and
+> the auction contract — they are kept for provenance, not as the live MVP.
 
-**Preprod:** `<PREPROD_ADDRESS_HERE>`  — explorer:
-`https://explorer.preprod.midnight.network/contract/<PREPROD_ADDRESS_HERE>`
-<!-- Fill in after `yarn deploy:preprod` (or the DApp Deploy button on preprod) lands. -->
+### Preprod (the Level 4 MVP)
+
+Deployed via `yarn deploy:preprod` (`deployments/preprod.json`):
+
+| Contract | Address |
+|----------|---------|
+| Auction (MVP) | `<PREPROD_AUCTION_ADDRESS>` |
+| AgentRegistry | `<PREPROD_REGISTRY_ADDRESS>` |
+
+> Explorer: `https://explorer.preprod.midnight.network/contract/<address>`
+<!-- Fill from deployments/preprod.json when the in-flight deploy lands. -->
 
 ---
 
-## Submission checklist (Level 3)
+## Submission checklist (Level 4)
 
-- [x] Fully functional dApp that meaningfully uses Midnight's privacy model
-- [x] Chosen idea from the list — **Confidential Credentials** ([`PROPOSAL.md`](./PROPOSAL.md))
-- [x] ≥ 3 tests passing (5 unit tests, `yarn test:unit`)
-- [x] CI/CD pipeline (workflow file + badge above)
-- [x] README "privacy model" section (what an observer can/cannot learn)
-- [x] ≥ 10 meaningful commits
+- [ ] Working MVP live on Preprod (verifiable address) — deploy in flight, see
+      [Deployed contracts](#deployed-contracts)
+- [x] Documentation — README + setup ([Running it](#running-it)) + usage
+      ([The product](#the-product--sealed-bid-agent-auction))
+- [x] CI/CD pipeline on the repo (workflow + badge above)
+- [ ] Product X profile — placeholder linked at the top; create the account and
+      swap in the real URL
+- [x] ≥ 15 meaningful commits (40+)
 - [ ] Live demo link — `<VERCEL_URL_HERE>`
-- [ ] Preprod contract address (verifiable) — see [Deployed contracts](#deployed-contracts)
-- [ ] Screenshot: test output (3+ passing)
-- [ ] Demo video (~1 min) showing full functionality
-- [ ] Product proposal submitted for approval (from [`PROPOSAL.md`](./PROPOSAL.md))
+- [ ] Demo video of the MVP
 
 ---
 
@@ -261,7 +308,7 @@ agent/
 ├── src/                       # CLI: network config, wallet provider, deploy + inspection tools
 │   ├── config.ts             # Preview / Preprod / local network configs
 │   ├── wallet.ts             # provider: build, dust registration, bounded-memory sync
-│   └── deploy-testnet.ts     # deploy all four, register dust, wait, submit
+│   └── deploy-testnet.ts     # deploy all five, register dust, wait, submit
 ├── demo/                      # React DApp
 │   └── src/
 │       ├── wallet.ts         # multi-wallet detect + connect/disconnect
