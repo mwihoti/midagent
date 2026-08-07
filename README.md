@@ -111,13 +111,21 @@ the gotcha: the registration tx must **not** go through `signRecipe` — it carr
 its own dust-registration signature and has no unshielded spend, so signing it
 corrupts it and the node rejects it.
 
-**2. A cold wallet sync will OOM your process.**
+**2. A cold wallet sync will OOM your process — and on Preprod, no flag saves it.**
 The wallet SDK syncs the shielded + dust history from genesis **in memory**.
-On Preprod (~1.8M blocks) that blew past Node's 4 GB heap at ~20% and crashed
-(`JavaScript heap out of memory`). Fix: a dust-fee deploy doesn't need the
-shielded wallet at all, so I stop the shielded subsystem right after startup
-(`stopShielded`). Memory drops from *climbing-to-19 GB* to a bounded ~200–900 MB,
-and only the (much lighter) dust subsystem keeps syncing.
+On Preprod (~1.9M blocks) that blew past Node's 4 GB heap and crashed
+(`JavaScript heap out of memory`). Stopping the shielded subsystem right after
+startup (`stopShielded`) helps — a dust-fee deploy doesn't need it — but the
+honest end of this story is that it only delays the crash: the dust subsystem
+itself retains per-index state, and a later run still hit the 4 GB limit at
+just **6%** of the dust sync. (Low RSS had me thinking memory was bounded; it
+wasn't — the growing heap was quietly being paged to swap.) Extrapolated, a
+cold CLI sync of today's Preprod needs on the order of 60 GB of heap. So:
+`yarn deploy:preprod` works on a big-memory machine (or on the much smaller
+Preview chain — `yarn deploy:preview` completes in minutes), but the supported
+path to Preprod on ordinary hardware is the **DApp**: browser wallets keep a
+persistent, disk-backed synced state, so deploying from the UI sidesteps the
+cold sync entirely.
 
 **3. `Custom error 170` on submit = version mismatch, not your code.**
 That's `InvalidDustSpendProof` — the node rejected the **dust fee proof**. The
@@ -230,7 +238,7 @@ cp .env.example .env                 # add your MIDNIGHT_PREPROD_MNEMONIC (never
 docker compose -f proof-server.yml up -d   # proof server, pinned to ledger 8.0.3
 
 yarn deploy:preview                  # fast: deploys all four to Preview
-yarn deploy:preprod                  # the real target; registers dust, waits, deploys
+yarn deploy:preprod                  # needs a big-RAM machine (see gotcha #2); on a laptop, deploy to Preprod from the DApp instead
 yarn inspect:preview                 # print wallet address + NIGHT balance
 ```
 
@@ -273,7 +281,7 @@ Deployed and verifiable on **Midnight Preview** (`deployments/preview.json`):
 
 ### Preprod (the Level 4 MVP)
 
-Deployed via `yarn deploy:preprod` (`deployments/preprod.json`):
+Deployed from the DApp (browser wallet pays the dust fee; see gotcha #2 for why the CLI route needs a big-memory machine):
 
 | Contract | Address |
 |----------|---------|
