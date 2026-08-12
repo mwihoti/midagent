@@ -303,7 +303,7 @@ Deployed from the DApp (browser wallet pays the dust fee; see gotcha #2 for why 
 - [ ] Product X profile — placeholder linked at the top; create the account and
       swap in the real URL
 - [x] ≥ 15 meaningful commits (40+)
-- [ ] Live demo link — `<VERCEL_URL_HERE>`
+- [x] Live demo link — **<https://mwihoti.github.io/midagent/>** (deployed by CI on every push)
 - [ ] Demo video of the MVP
 
 ---
