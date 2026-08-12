@@ -77,8 +77,14 @@ export async function connectWallet(
 export function createSession(config: any, contractKey: string = 'agent-registry') {
   setNetworkId(config.networkId);
 
+  // BASE_URL is '/' locally and on root-domain hosts, '/midagent/' on GitHub
+  // Pages — the ZK proving assets are fetched relative to wherever the app is
+  // served from, so a sub-path deployment still finds them.
   const zkConfigProvider = new FetchZkConfigProvider(
-    new URL(`/contract/${contractKey}`, window.location.origin).toString(),
+    new URL(
+      `${import.meta.env.BASE_URL}contract/${contractKey}`,
+      window.location.origin,
+    ).toString(),
     window.fetch.bind(window),
   );
 
