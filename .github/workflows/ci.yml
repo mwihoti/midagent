@@ -36,6 +36,9 @@ jobs:
           cache: npm
           cache-dependency-path: demo/package-lock.json
 
+      - name: Install root dependencies (compiled contracts resolve SDK imports from the repo root)
+        run: yarn install --frozen-lockfile
+
       - name: Install frontend dependencies
         working-directory: demo
         run: npm install
@@ -63,6 +66,9 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: demo/package-lock.json
+
+      - name: Install root dependencies (compiled contracts resolve SDK imports from the repo root)
+        run: yarn install --frozen-lockfile
 
       - name: Install frontend dependencies
         working-directory: demo
