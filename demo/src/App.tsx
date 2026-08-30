@@ -390,7 +390,7 @@ function App() {
                   {deployed[k]}
                 </p>
                 <a
-                  href={`https://explorer.${network}.midnight.network/contract/${deployed[k]}`}
+                  href={`https://explorer.${network}.midnight.network/contracts/${deployed[k]}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="explorer-link"

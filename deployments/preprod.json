@@ -1,0 +1,12 @@
+{
+  "networkId": "preprod",
+  "deployedAt": "2026-08-30",
+  "deployedFrom": "DApp (browser wallet, 1AM)",
+  "contracts": {
+    "Auction": "67dd55c6018589d86f6340efee0679d0fe6ae57ebb2d765c5b0b96534cfb0efd",
+    "AgentRegistry": "61dcfc262564c24b03b5b453e09a62f68593dbabc7a466f861add52fcf16d73c"
+  },
+  "transactions": {
+    "AgentRegistry": "137ef5bba382a7080b475457e8ed9554022c0dab7908e7e2589893231c29d5dc"
+  }
+}

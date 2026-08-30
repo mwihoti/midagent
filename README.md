@@ -275,7 +275,7 @@ Deployed and verifiable on **Midnight Preview** (`deployments/preview.json`):
 | Payments | `fbcae9578c9ede02c6347b1c019ac5bccde5b6fc15a7d4af25c1865fc8db2d0f` |
 | Composition | `21f43e89ffc37b388772acbd592c88d406e30728494da1a8bd0872370598ca7a` |
 
-> Explorer: `https://explorer.preview.midnight.network/contract/<address>`
+> Explorer: `https://explorer.preview.midnight.network/contracts/<address>`
 > Note: these Preview addresses predate the privacy fix (commit `0304874`) and
 > the auction contract — they are kept for provenance, not as the live MVP.
 
@@ -285,17 +285,17 @@ Deployed from the DApp (browser wallet pays the dust fee; see gotcha #2 for why 
 
 | Contract | Address |
 |----------|---------|
-| Auction (MVP) | `<PREPROD_AUCTION_ADDRESS>` |
-| AgentRegistry | `<PREPROD_REGISTRY_ADDRESS>` |
+| Auction (MVP) | `67dd55c6018589d86f6340efee0679d0fe6ae57ebb2d765c5b0b96534cfb0efd` |
+| AgentRegistry | `61dcfc262564c24b03b5b453e09a62f68593dbabc7a466f861add52fcf16d73c` |
 
-> Explorer: `https://explorer.preprod.midnight.network/contract/<address>`
-<!-- Fill from deployments/preprod.json when the in-flight deploy lands. -->
+> Explorer: [Auction](https://explorer.preprod.midnight.network/contracts/67dd55c6018589d86f6340efee0679d0fe6ae57ebb2d765c5b0b96534cfb0efd) ·
+> [AgentRegistry](https://explorer.preprod.midnight.network/contracts/61dcfc262564c24b03b5b453e09a62f68593dbabc7a466f861add52fcf16d73c)
 
 ---
 
 ## Submission checklist (Level 4)
 
-- [ ] Working MVP live on Preprod (verifiable address) — deploy in flight, see
+- [x] Working MVP live on Preprod (verifiable address) — see
       [Deployed contracts](#deployed-contracts)
 - [x] Documentation — README + setup ([Running it](#running-it)) + usage
       ([The product](#the-product--sealed-bid-agent-auction))
