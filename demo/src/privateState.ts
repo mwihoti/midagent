@@ -101,4 +101,167 @@ export function hasSecret(name: string): boolean {
 /** Forget every stored secret. */
 export function clearSecrets(): void {
   writeAll({});
+  writeRecords({ owners: {}, bids: {} });
+  writeNumbers({});
+}
+
+function randomBytes(size: number): Uint8Array {
+  const bytes = new Uint8Array(size);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+const NUMBERS_KEY = 'midnight-agent-numeric-secrets';
+const AUCTION_RECORDS_KEY = 'midnight-agent-auction-records';
+
+type NumberMap = Record<string, string>;
+
+type BidRecord = { amount: string; nonce: string; secret: string };
+
+type AuctionRecords = {
+  owners: Record<string, string>;
+  bids: Record<string, BidRecord>;
+};
+
+function readNumbers(): NumberMap {
+  try {
+    return JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function writeNumbers(map: NumberMap): void {
+  try {
+    localStorage.setItem(NUMBERS_KEY, JSON.stringify(map));
+  } catch {
+    // Same as writeAll: a single session still works if storage is blocked.
+  }
+}
+
+function emptyRecords(): AuctionRecords {
+  return { owners: {}, bids: {} };
+}
+
+function readRecords(): AuctionRecords {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AUCTION_RECORDS_KEY) ?? '{}');
+    return {
+      owners: parsed.owners ?? {},
+      bids: parsed.bids ?? {},
+    };
+  } catch {
+    return emptyRecords();
+  }
+}
+
+function writeRecords(records: AuctionRecords): void {
+  try {
+    localStorage.setItem(AUCTION_RECORDS_KEY, JSON.stringify(records));
+  } catch {
+    // Secrets then live only in the witness slots set just below.
+  }
+}
+
+function bidKey(auctionId: string, bidderId: string): string {
+  return JSON.stringify([auctionId, bidderId]);
+}
+
+/** Whole-number bid, in token units, as a Compact Uint<64>. */
+export function parseBidAmount(text: string): bigint {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error('Bid amount must be a whole number (0 or greater), with no decimals.');
+  }
+  const amount = BigInt(trimmed);
+  const max = (1n << 64n) - 1n;
+  if (amount > max) {
+    throw new Error('Bid amount does not fit in a 64-bit unsigned integer.');
+  }
+  return amount;
+}
+
+export function setNumericSecret(name: string, value: bigint): void {
+  const all = readNumbers();
+  all[name] = value.toString();
+  writeNumbers(all);
+}
+
+export function getNumericSecret(name: string): bigint {
+  const stored = readNumbers()[name];
+  if (!stored || !/^\d+$/.test(stored)) return 0n;
+  return BigInt(stored);
+}
+
+/**
+ * Decode a fixed-width public id back into the text the user typed.
+ * Trailing zero padding from `toFixedBytes` is dropped.
+ */
+export function bytesToText(bytes: Uint8Array): string {
+  let end = bytes.length;
+  while (end > 0 && bytes[end - 1] === 0) end -= 1;
+  return new TextDecoder().decode(bytes.slice(0, end));
+}
+
+/**
+ * Create the buyer secret for an auction and arm the `ownerSecret` witness.
+ * Stored per auction id so this browser can close and finalize later, and so
+ * a second auction does not overwrite the first key.
+ */
+export function saveAuctionOwner(auctionId: string): void {
+  const secret = randomBytes(32);
+  const records = readRecords();
+  records.owners[auctionId] = toHex(secret);
+  writeRecords(records);
+  setSecret('ownerSecret', secret);
+}
+
+export function hasAuctionOwner(auctionId: string): boolean {
+  return Boolean(readRecords().owners[auctionId]);
+}
+
+/** Copy the stored buyer secret into the witness slot. False if we never opened it. */
+export function activateOwner(auctionId: string): boolean {
+  const hex = readRecords().owners[auctionId];
+  if (!hex) return false;
+  setSecret('ownerSecret', fromHex(hex));
+  return true;
+}
+
+/**
+ * Remember a sealed bid and arm the amount / nonce / bidder-secret witnesses.
+ * The nonce and bidder secret are random: the nonce blinds the commitment,
+ * and the bidder secret is what `revealBid` will demand later.
+ */
+export function saveSealedBid(auctionId: string, bidderId: string, amount: bigint): void {
+  const nonce = randomBytes(32);
+  const secret = randomBytes(32);
+  const records = readRecords();
+  records.bids[bidKey(auctionId, bidderId)] = {
+    amount: amount.toString(),
+    nonce: toHex(nonce),
+    secret: toHex(secret),
+  };
+  writeRecords(records);
+  setNumericSecret('bidAmount', amount);
+  setSecret('bidNonce', nonce);
+  setSecret('bidderSecret', secret);
+}
+
+export function hasSealedBid(auctionId: string, bidderId: string): boolean {
+  return Boolean(readRecords().bids[bidKey(auctionId, bidderId)]);
+}
+
+export function sealedBidAmount(auctionId: string, bidderId: string): string | null {
+  return readRecords().bids[bidKey(auctionId, bidderId)]?.amount ?? null;
+}
+
+/** Copy one stored bid into the witness slots `revealBid` reads. */
+export function activateBid(auctionId: string, bidderId: string): boolean {
+  const record = readRecords().bids[bidKey(auctionId, bidderId)];
+  if (!record) return false;
+  setNumericSecret('bidAmount', BigInt(record.amount));
+  setSecret('bidNonce', fromHex(record.nonce));
+  setSecret('bidderSecret', fromHex(record.secret));
+  return true;
 }

@@ -1,5 +1,5 @@
 import { CompiledContract } from '@midnight-ntwrk/compact-js';
-import { getSecret } from './privateState';
+import { getNumericSecret, getSecret } from './privateState';
 
 /**
  * Bind a witness to the locally-stored secret of the same name. The value is
@@ -22,7 +22,7 @@ interface ContractDef {
   label: string;
   className: string;
   load: () => Promise<any>;
-  witnesses: Record<string, (ctx: any) => [any, Uint8Array]>;
+  witnesses: Record<string, (ctx: any) => [any, Uint8Array | bigint]>;
 }
 
 export const CONTRACTS: Record<ContractKey, ContractDef> = {
@@ -65,8 +65,10 @@ export const CONTRACTS: Record<ContractKey, ContractDef> = {
     className: 'AuctionContract',
     load: () => import('../../contracts/managed/auction/contract/index.js'),
     witnesses: {
-      bidAmount: w('bidAmount', 32),
+      bidAmount: (ctx: any): [any, bigint] => [ctx.privateState, getNumericSecret('bidAmount')],
       bidNonce: w('bidNonce', 32),
+      ownerSecret: w('ownerSecret', 32),
+      bidderSecret: w('bidderSecret', 32),
     },
   },
 };
