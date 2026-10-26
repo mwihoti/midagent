@@ -184,6 +184,11 @@ header h1 {
   border-color: var(--accent);
 }
 
+.input-group .btn {
+  margin-top: 8px;
+  margin-right: 8px;
+}
+
 .result {
   font-size: 0.75rem;
   color: var(--success);
