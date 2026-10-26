@@ -1,18 +1,24 @@
 import { WebSocket } from 'ws';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { getConfig } from './config.js';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { getConfig, redactProjectId } from './config.js';
 import { deploymentFilePath, loadDeployments } from './deployments.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // @ts-expect-error WebSocket global for apollo
 globalThis.WebSocket = WebSocket;
 
 async function main() {
+  dotenv.config({ path: path.resolve(__dirname, '../.env') });
   const config = getConfig();
   setNetworkId(config.networkId);
 
   console.log(`Checking deployments on ${config.networkId}...`);
-  console.log(`Indexer: ${config.indexer}\n`);
+  console.log(`Indexer: ${redactProjectId(config.indexer)}\n`);
 
   const deployments = loadDeployments(config.networkId);
   if (!deployments || Object.keys(deployments.contracts).length === 0) {

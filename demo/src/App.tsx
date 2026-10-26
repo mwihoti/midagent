@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import './App.css';
 import { CONTRACTS, type ContractKey } from './compiledContract';
+import type { AuctionView } from './auctionView';
 
 interface WalletChoice {
   key: string;
@@ -53,7 +54,10 @@ function App() {
   const [auctionId, setAuctionId] = useState('');
   const [bidderId, setBidderId] = useState('');
   const [bidAmount, setBidAmount] = useState('');
-  const [auctionBusy, setAuctionBusy] = useState<null | 'create' | 'bid' | 'close'>(null);
+  const [auctionBusy, setAuctionBusy] = useState<
+    null | 'create' | 'bid' | 'close' | 'reveal' | 'finalize' | 'read'
+  >(null);
+  const [auctionView, setAuctionView] = useState<AuctionView | null>(null);
   const [txResult, setTxResult] = useState<string | null>(null);
 
   const handleConnect = useCallback(async () => {
@@ -208,18 +212,28 @@ function App() {
     }
   }, [config, walletApi, deployed, agentId]);
 
+  const refreshAuction = useCallback(async () => {
+    const contractAddress = deployed['auction'];
+    if (!config || !contractAddress || !auctionId) return null;
+    const { createSession } = await import('./wallet');
+    const { readAuctionView } = await import('./auctionView');
+    const session = createSession(config, 'auction');
+    const view = await readAuctionView(session.publicDataProvider, contractAddress, auctionId);
+    setAuctionView(view);
+    return view;
+  }, [config, deployed, auctionId]);
+
   /**
-   * Sealed-bid auction actions (Level 4 MVP: the commit phase). The bid amount
-   * is a private witness; a random blinding nonce is generated and kept in
-   * local private state, and only persistentCommit(amount, nonce) reaches the
-   * chain. The nonce persists locally because the Level 5 reveal must open the
-   * commitment with the exact same values.
+   * Sealed-bid procurement auction. The amount, blinding nonce, owner secret,
+   * and bidder secret stay in this browser. The chain stores commitments plus,
+   * once a bid is the lowest reveal, that winning amount and pseudonym.
    */
   const handleAuction = useCallback(
-    async (action: 'create' | 'bid' | 'close') => {
+    async (action: 'create' | 'bid' | 'close' | 'reveal' | 'finalize') => {
       const contractAddress = deployed['auction'];
       if (!config || !walletApi || !contractAddress || !auctionId) return;
-      if (action === 'bid' && (!bidderId || !bidAmount)) return;
+      if ((action === 'bid' || action === 'reveal') && !bidderId) return;
+      if (action === 'bid' && !bidAmount) return;
       setAuctionBusy(action);
       setError(null);
 
@@ -227,37 +241,83 @@ function App() {
         const { createSession } = await import('./wallet');
         const { getCompiledContract } = await import('./compiledContract');
         const { callCircuit } = await import('./contracts');
-        const { toFixedBytes, setSecretFromText, setRandomSecret } = await import(
-          './privateState'
-        );
+        const {
+          toFixedBytes,
+          saveAuctionOwner,
+          activateOwner,
+          saveSealedBid,
+          activateBid,
+          parseBidAmount,
+        } = await import('./privateState');
 
         const session = createSession(config, 'auction');
         const compiled = await getCompiledContract('auction');
+        const idBytes = toFixedBytes(auctionId);
+
+        let txId: string;
+        let message: string;
 
         if (action === 'create') {
-          const { txId } = await callCircuit(
+          saveAuctionOwner(auctionId);
+          ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'createAuction', [toFixedBytes(auctionId)],
-          );
-          setTxResult(`Auction "${auctionId}" opened for sealed bids. Tx: ${txId}`);
+            'createAuction', [idBytes],
+          ));
+          message =
+            `Auction "${auctionId}" opened. The buyer key is stored only in this browser — ` +
+            `only that key can close bidding and finalize.`;
         } else if (action === 'bid') {
-          // The amount stays in this browser; the nonce is random so equal bids
-          // are indistinguishable on-chain.
-          setSecretFromText('bidAmount', bidAmount);
-          setRandomSecret('bidNonce');
-          const { txId } = await callCircuit(
+          const amount = parseBidAmount(bidAmount);
+          saveSealedBid(auctionId, bidderId, amount);
+          ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'commitBid', [toFixedBytes(auctionId), toFixedBytes(bidderId)],
-          );
-          setTxResult(
-            `Sealed bid committed to "${auctionId}" — amount blinded, never revealed. Tx: ${txId}`,
-          );
+            'commitBid', [idBytes, toFixedBytes(bidderId)],
+          ));
+          message =
+            `Sealed bid committed to "${auctionId}" as "${bidderId}". ` +
+            `The amount and nonce stay in this browser until you reveal.`;
+        } else if (action === 'close') {
+          if (!activateOwner(auctionId)) {
+            throw new Error(
+              'No buyer key for this auction is stored in this browser. Only the wallet that opened it can close bidding.',
+            );
+          }
+          ({ txId } = await callCircuit(
+            session, walletApi, compiled, contractAddress,
+            'closeBidding', [idBytes],
+          ));
+          message = `Bidding closed on "${auctionId}". Bidders can now reveal.`;
+        } else if (action === 'reveal') {
+          if (!activateBid(auctionId, bidderId)) {
+            throw new Error(
+              `No sealed bid for "${bidderId}" on "${auctionId}" is stored in this browser, so it cannot be revealed.`,
+            );
+          }
+          ({ txId } = await callCircuit(
+            session, walletApi, compiled, contractAddress,
+            'revealBid', [idBytes, toFixedBytes(bidderId)],
+          ));
+          message =
+            `Bid revealed on "${auctionId}". If it is the lowest so far, the amount is now public; ` +
+            `a higher bid stays off the ledger.`;
         } else {
-          const { txId } = await callCircuit(
+          if (!activateOwner(auctionId)) {
+            throw new Error(
+              'No buyer key for this auction is stored in this browser. Only the buyer who opened it can finalize.',
+            );
+          }
+          ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'closeBidding', [toFixedBytes(auctionId)],
-          );
-          setTxResult(`Bidding closed on "${auctionId}". Tx: ${txId}`);
+            'finalizeAuction', [idBytes],
+          ));
+          message = `Auction "${auctionId}" finalized. The lowest revealed bid is the winner.`;
+        }
+
+        setTxResult(`${message} Tx: ${txId}`);
+        try {
+          await refreshAuction();
+        } catch {
+          // The indexer can lag the transaction. The tx id above is still the result.
         }
       } catch (err: any) {
         console.error('Auction error:', err);
@@ -266,8 +326,25 @@ function App() {
         setAuctionBusy(null);
       }
     },
-    [config, walletApi, deployed, auctionId, bidderId, bidAmount],
+    [config, walletApi, deployed, auctionId, bidderId, bidAmount, refreshAuction],
   );
+
+  const handleReadAuction = useCallback(async () => {
+    if (!auctionId) return;
+    setAuctionBusy('read');
+    setError(null);
+    try {
+      const view = await refreshAuction();
+      if (view && !view.found) {
+        setTxResult(`No auction "${auctionId}" on this contract yet.`);
+      }
+    } catch (err: any) {
+      console.error('Auction read error:', err);
+      setError(err.message || 'Could not read the auction');
+    } finally {
+      setAuctionBusy(null);
+    }
+  }, [auctionId, refreshAuction]);
 
   return (
     <div className="app">
@@ -460,11 +537,13 @@ function App() {
           <section className="card circuit-card">
             <h2>Sealed-Bid Auction</h2>
             <p className="description">
-              Open an auction, then commit a sealed bid. The bid amount stays in
-              this browser; the chain records only{' '}
-              <code>persistentCommit(amount, nonce)</code> — blinded, so even
-              equal bids look different. Closing freezes the bid set for the
-              reveal phase.
+              Procurement auction: the lowest revealed bid wins. Open an auction,
+              commit a sealed bid, then close bidding. The amount, blinding nonce,
+              and bidder key stay in this browser; the chain records{' '}
+              <code>persistentCommit(amount, nonce)</code>. After close, reveal
+              your own bid. A bid that is not the lowest stays off the ledger.
+              The buyer who opened the auction is the only one who can close it
+              and finalize the winner.
             </p>
             <div className="input-group">
               <label htmlFor="auctionId">Auction ID (public)</label>
@@ -472,7 +551,10 @@ function App() {
                 id="auctionId"
                 type="text"
                 value={auctionId}
-                onChange={(e) => setAuctionId(e.target.value)}
+                onChange={(e) => {
+                  setAuctionId(e.target.value);
+                  setAuctionView(null);
+                }}
                 placeholder="e.g. summarise-q3-report"
               />
               <button
@@ -492,10 +574,11 @@ function App() {
                 onChange={(e) => setBidderId(e.target.value)}
                 placeholder="e.g. provider-7"
               />
-              <label htmlFor="bidAmount">Bid amount (private)</label>
+              <label htmlFor="bidAmount">Bid amount (private, whole number, lowest wins)</label>
               <input
                 id="bidAmount"
                 type="text"
+                inputMode="numeric"
                 value={bidAmount}
                 onChange={(e) => setBidAmount(e.target.value)}
                 placeholder="e.g. 120"
@@ -507,14 +590,59 @@ function App() {
               >
                 {auctionBusy === 'bid' ? 'Committing…' : 'Commit Sealed Bid'}
               </button>
+              <button
+                className="btn primary"
+                onClick={() => handleAuction('reveal')}
+                disabled={auctionBusy !== null || !auctionId || !bidderId}
+              >
+                {auctionBusy === 'reveal' ? 'Revealing…' : 'Reveal My Bid'}
+              </button>
             </div>
-            <button
-              className="btn secondary"
-              onClick={() => handleAuction('close')}
-              disabled={auctionBusy !== null || !auctionId}
-            >
-              {auctionBusy === 'close' ? 'Closing…' : 'Close Bidding'}
-            </button>
+            <div className="input-group">
+              <button
+                className="btn secondary"
+                onClick={() => handleAuction('close')}
+                disabled={auctionBusy !== null || !auctionId}
+              >
+                {auctionBusy === 'close' ? 'Closing…' : 'Close Bidding'}
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => handleAuction('finalize')}
+                disabled={auctionBusy !== null || !auctionId}
+              >
+                {auctionBusy === 'finalize' ? 'Finalizing…' : 'Finalize Winner'}
+              </button>
+              <button
+                className="btn secondary"
+                onClick={handleReadAuction}
+                disabled={auctionBusy !== null || !auctionId}
+              >
+                {auctionBusy === 'read' ? 'Reading…' : 'Read Auction'}
+              </button>
+            </div>
+            {auctionView && auctionView.found && (
+              <div className="contract-info">
+                <p>
+                  <span className="label">Phase:</span> {auctionView.phaseLabel}
+                </p>
+                <p>
+                  <span className="label">Committed / revealed:</span>{' '}
+                  {auctionView.bidCount.toString()} / {auctionView.revealedCount.toString()}
+                </p>
+                {auctionView.winnerPseudonym ? (
+                  <p className="result">
+                    {auctionView.phase === 3n ? 'Winner' : 'Lowest bid so far'}:{' '}
+                    {auctionView.winnerPseudonym} at {auctionView.winningAmount?.toString()}
+                  </p>
+                ) : (
+                  <p className="description">No bid revealed yet. Losing amounts are not on the ledger.</p>
+                )}
+              </div>
+            )}
+            {auctionView && !auctionView.found && (
+              <p className="description">No auction with this id on the deployed contract.</p>
+            )}
           </section>
         )}
 
@@ -541,7 +669,11 @@ function App() {
             </div>
             <div className="privacy-item">
               <span className="badge private">Private</span>
-              <span>Agent capabilities, ownership proofs</span>
+              <span>Agent capabilities, bid nonces, losing bid amounts</span>
+            </div>
+            <div className="privacy-item">
+              <span className="badge public">Public</span>
+              <span>Winning bidder and the lowest revealed amount</span>
             </div>
             <p className="privacy-note">
               Agent capabilities are committed on-chain via ZK proofs. Observers

@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/mwihoti/midagent/actions/workflows/ci.yml/badge.svg)](https://github.com/mwihoti/midagent/actions/workflows/ci.yml)
 
-> **Level 4 — Waxing Gibbous: the Sealed-Bid Auction MVP.** The approved idea
-> from the Level 3 submission, live as a product: providers commit **blinded
-> sealed bids** on-chain (`persistentCommit(amount, nonce)`), the bid set
-> freezes when bidding closes, and no bid amount is ever published. See
-> [The product](#the-product--sealed-bid-agent-auction),
+> **Sealed-bid procurement auction.** Providers commit **blinded sealed bids**
+> (`persistentCommit(amount, nonce)`). The buyer closes bidding, bidders reveal,
+> and the contract checks each reveal against its commitment, then records the
+> **lowest** revealed bid as the winner. Losing amounts stay off the ledger.
+> See [The product](#the-product--sealed-bid-agent-auction),
 > [`PROPOSAL.md`](./PROPOSAL.md) and [Privacy model](#privacy-model).
 >
 > **Follow the build:** [@MidnightAgentMkt on X](https://x.com/MidnightAgentMkt)
@@ -31,7 +31,7 @@ Five Compact contracts model the marketplace:
 
 | Contract | Circuits | Purpose |
 |----------|----------|---------|
-| `auction.compact` | `createAuction`, `commitBid`, `closeBidding` | **The product MVP** — sealed-bid auctions with blinded bid commitments |
+| `auction.compact` | `createAuction`, `commitBid`, `closeBidding`, `revealBid`, `finalizeAuction` | **The product** — sealed-bid procurement auction: blinded commits, checked reveals, lowest bid wins |
 | `agent-registry.compact` | `registerAgent`, `proveOwnership` | Register agents behind a capability commitment; prove ownership with ZK |
 | `marketplace.compact` | `submitIntent`, `matchIntent`, `cancelIntent` | Shielded intent matching |
 | `payments.compact` | `createEscrow`, `releaseEscrow`, `cancelEscrow`, `createSubscription`, `revokeSubscription` | Hybrid escrow + subscription payments |
@@ -45,27 +45,61 @@ proving, dust-fee balancing, and submission.
 
 ## The product — Sealed-Bid Agent Auction
 
-The MVP implements the **privacy-critical core first**: the commit phase.
-
 A buyer opens an auction for a job. Competing agent providers commit sealed
 bids: the amount and a random blinding nonce stay in the bidder's browser
 (local private state), and the chain records only
 `persistentCommit(amount, nonce)`. Blinding matters — bid spaces are small, so
 an unblinded hash could be brute-forced, and two equal bids would be visibly
 equal. With the nonce, even identical amounts produce different commitments
-(there's a unit test for exactly that). When the buyer closes bidding, the
-commitment set freezes; because commitments are *binding*, nobody can open
-theirs to a different amount in the reveal phase (Level 5), which is what makes
-the eventual winner verifiable.
+(there's a unit test for exactly that). Commitments are *binding*, so a reveal
+that opens a different amount is rejected.
+
+This is a **procurement** auction: the lowest revealed bid wins. The README and
+the contract do not describe a highest-bid sale; the buyer is hiring an agent
+and wants the lowest price. Ties keep the earlier reveal.
+
+**Who may do what.** Opening an auction samples a buyer secret and stores
+`persistentHash(secret)` on-chain. `closeBidding` and `finalizeAuction` re-hash
+the secret from this browser and reject anyone else. Committing a bid likewise
+stores `persistentHash(bidderSecret)`. `revealBid` checks that hash, so a bidder
+can only open their own commitment. The secrets stay in
+[`demo/src/privateState.ts`](./demo/src/privateState.ts), keyed by auction id
+(and bidder id), and are copied into the witness slots just before the call.
 
 **Using it (browser):** connect wallet → deploy **Sealed-Bid Auction** → in the
-auction card: *Open Auction* with an id → *Commit Sealed Bid* with a public
-bidder pseudonym and a **private** amount → *Close Bidding*. Watch the ledger:
-bid count goes up, no amount ever appears.
+auction card:
 
-**Phases:** `1` = bidding open, `2` = closed. Reveal + verifiable winner +
-escrow settlement are Level 5 scope; hardening is Level 6 (see
-[`PROPOSAL.md`](./PROPOSAL.md)).
+1. *Open Auction* with an id (buyer key saved locally).
+2. *Commit Sealed Bid* with a public bidder pseudonym and a **private** whole-number amount.
+3. *Close Bidding* from the same browser that opened it.
+4. *Reveal My Bid* — the contract checks the commitment. Read the card for the current lowest bid.
+5. *Finalize Winner* from the buyer's browser. The phase becomes finalized and further reveals fail.
+
+*Read Auction* loads the public record from the indexer (phase, counts, winner).
+The indexer can lag a transaction by a block or two.
+
+**Phases:** `1` = bidding open, `2` = reveal, `3` = finalized.
+
+**What "final" means.** Finalizing records the winner. The auction contract does
+not custody coins and does not call the payments escrow, so no funds move. Wiring
+the winning amount into `payments.compact` is follow-up work.
+
+### Privacy tradeoff on reveal
+
+The running minimum has to be public. The next bidder proves `amount < best`
+against a number the circuit can read from the ledger, and their own amount is
+the only secret they hold — they do not know anyone else's bid. So:
+
+- The **current lowest amount** and the winner's pseudonym are published.
+- A bid that **never takes the lead** is marked revealed, and its amount is not
+  written. Observers learn only that it was not strictly lower.
+- A bid that **led and was later beaten** was public while it led. That amount
+  remains in the history of earlier transactions even after a lower bid replaces
+  it in current state. Revealing the cheapest bid first leaks the least.
+- Unrevealed bids stay fully sealed and **cannot win**. The buyer may finalize
+  after one reveal; there is no on-chain reveal deadline, so a buyer can close
+  the window early and a bidder can also stall by never revealing. A deadline
+  is follow-up work.
 
 ---
 
@@ -148,7 +182,7 @@ the chain**. What an observer can and cannot learn, per contract:
 
 | Contract | An observer **can** see | An observer **cannot** see |
 |---|---|---|
-| `auction` | An auction exists and its phase; how many bids were committed; the blinded commitments | Any bid amount; whether two bids are equal; the blinding nonces |
+| `auction` | An auction exists and its phase; how many bids were committed and revealed; the blinded commitments; the owner and bidder-secret commitments; the winning pseudonym; the lowest revealed amount | Losing amounts that never led; every blinding nonce; the owner secret; each bidder secret; whether two non-leading bids are equal |
 | `agent-registry` | An agent exists; `agentCount`; its id; a commitment of its capabilities; that an ownership proof succeeded | The capabilities themselves, or which value satisfied the proof |
 | `marketplace` | An intent exists; `intentCount`; that a match happened; which agent id was matched | The buyer's requirements, or the matcher's address |
 | `payments` | An escrow or subscription exists | Its terms — amount, payer, payee |
@@ -189,22 +223,26 @@ yarn test:unit
 ```
 
 ```
-✓ src/test/auction.sim.test.ts       (9 tests)
+✓ src/test/auction.sim.test.ts       (15 tests)
 ✓ src/test/agent-registry.sim.test.ts (5 tests)
 ✓ src/test/marketplace.sim.test.ts   (6 tests)
 ✓ src/test/payments.sim.test.ts      (6 tests)
 ✓ src/test/composition.sim.test.ts   (6 tests)
+✓ src/test/config.sim.test.ts        (4 tests)
+✓ src/test/private-state.sim.test.ts (3 tests)
 
-Test Files  5 passed (5)
-     Tests  32 passed (32)
+Test Files  7 passed (7)
+     Tests  45 passed (45)
 ```
 
 Every contract has a test asserting its private witness never reaches public
 state — e.g. *"NEVER exposes the bid amount or nonce in public state"*. The
 auction suite also proves the **blinding property**: two bidders committing the
 same amount produce different on-chain commitments, so equal bids are
-indistinguishable. Those are the regression guards for the disclosure bug
-described above.
+indistinguishable. It covers a matching reveal, a mismatched reveal, lowest-bid
+winner selection (a higher bid that never leads is absent from public numbers),
+and rejection of close/finalize by anyone but the owner. Those are the
+regression guards for the disclosure bug described above.
 
 The heavier end-to-end tests (`src/test/*.test.ts`) run against a local devnet
 via `yarn env:up && yarn test:local`.
@@ -232,15 +270,26 @@ The badge at the top reflects the latest run.
 
 ```bash
 yarn install
-yarn compile                         # compiles all four contracts to contracts/managed/
+yarn compile                         # compiles all five contracts to contracts/managed/
 
-cp .env.example .env                 # add your MIDNIGHT_PREPROD_MNEMONIC (never commit this)
+cp .env.example .env                 # MIDNIGHT_PREPROD_MNEMONIC and BLOCKFROST_PROJECT_ID (never commit .env)
 docker compose -f proof-server.yml up -d   # proof server, pinned to ledger 8.0.3
 
-yarn deploy:preview                  # fast: deploys all four to Preview
-yarn deploy:preprod                  # needs a big-RAM machine (see gotcha #2); on a laptop, deploy to Preprod from the DApp instead
+yarn deploy:preview                  # fast: deploys all five to Preview
+yarn deploy:preprod                  # needs BLOCKFROST_PROJECT_ID and a big-RAM machine (see gotcha #2)
 yarn inspect:preview                 # print wallet address + NIGHT balance
 ```
+
+**Preprod endpoints.** Midnight retired `indexer.preprod.midnight.network` and
+`rpc.preprod.midnight.network` at 22:00 UTC on 9 October 2026 (the indexer now
+returns HTTP 410). `src/config.ts` follows the current
+[networks guide](https://docs.midnight.network/guides/networks-and-environments):
+Blockfrost serves Preprod, and `BLOCKFROST_PROJECT_ID` (a Midnight Preprod
+project id from [blockfrost.io](https://blockfrost.io)) is appended as
+`?project_id=`. The CLI reads it from the environment at call time and redacts
+it in its own logs. Preview is still Midnight-hosted and needs no token. The
+browser DApp takes its indexer and RPC from the wallet (`getConfiguration()`),
+not from this file — do not ship the project id in the frontend.
 
 Local tests against a Docker devnet:
 
@@ -290,6 +339,9 @@ Deployed from the DApp (browser wallet pays the dust fee; see gotcha #2 for why 
 
 > Explorer: [Auction](https://explorer.preprod.midnight.network/contracts/67dd55c6018589d86f6340efee0679d0fe6ae57ebb2d765c5b0b96534cfb0efd) ·
 > [AgentRegistry](https://explorer.preprod.midnight.network/contracts/61dcfc262564c24b03b5b453e09a62f68593dbabc7a466f861add52fcf16d73c)
+>
+> Those addresses are the commit-phase deployment. They do not include
+> `revealBid` / `finalizeAuction`. This repo does not redeploy them.
 
 ---
 
@@ -314,7 +366,7 @@ Deployed from the DApp (browser wallet pays the dust fee; see gotcha #2 for why 
 agent/
 ├── contracts/                # Compact sources + compiled output (contracts/managed/)
 ├── src/                       # CLI: network config, wallet provider, deploy + inspection tools
-│   ├── config.ts             # Preview / Preprod / local network configs
+│   ├── config.ts             # Preview / Blockfrost Preprod / local network configs
 │   ├── wallet.ts             # provider: build, dust registration, bounded-memory sync
 │   └── deploy-testnet.ts     # deploy all five, register dust, wait, submit
 ├── demo/                      # React DApp

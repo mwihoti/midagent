@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-import { getConfig } from './config.js';
+import { getConfig, redactProjectId } from './config.js';
 import { saveDeployments } from './deployments.js';
 import { MidnightWalletProvider, syncWalletUnshielded } from './wallet.js';
 import { buildProviders } from './providers.js';
@@ -61,8 +61,8 @@ async function main() {
   };
 
   console.log(`\nNetwork: ${config.networkId}`);
-  console.log(`Node:    ${config.node}`);
-  console.log(`Indexer: ${config.indexer}`);
+  console.log(`Node:    ${redactProjectId(config.node)}`);
+  console.log(`Indexer: ${redactProjectId(config.indexer)}`);
 
   const mnemonic = process.env['MIDNIGHT_PREPROD_MNEMONIC'];
   if (mnemonic) {

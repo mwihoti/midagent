@@ -2,66 +2,158 @@ pragma language_version >= 0.23;
 
 import CompactStandardLibrary;
 
-// Sealed-bid auction — Level 4 MVP: the commit phase.
+// Sealed-bid procurement auction.
 //
-// Public ledger: which auctions exist, what phase each is in, how many bids
-// were committed, and the bid commitments themselves. A bid commitment is
-// persistentCommit(amount, nonce) — hiding (the nonce blinds it, so a small
-// amount space cannot be brute-forced) and binding (the bidder cannot open it
-// to a different amount later, which is what makes the Level 5 reveal
-// trustworthy).
+// A buyer opens an auction. Providers commit sealed bids. The buyer closes
+// bidding, bidders reveal, and the contract records the lowest revealed bid
+// as the winner (a procurement: the buyer wants the lowest price). Finalizing
+// freezes that result.
 //
-// Private witnesses: the bid amount and its blinding nonce. Neither ever
-// reaches the chain.
+// Public ledger: the auction's phase, how many bids were committed and
+// revealed, the blinded bid commitments, a commitment to the buyer's secret
+// (the owner), a commitment to each bidder's secret, the winning bidder's
+// public pseudonym, and the winning amount.
 //
-// Phases: 1 = bidding open, 2 = bidding closed. The reveal/winner phase is
-// Level 5 scope.
+// Private witnesses: the bid amount and its blinding nonce, the owner secret,
+// and the bidder secret. Losing amounts are not written to the ledger. The
+// amount that is currently the lowest *is* published, because the next bidder
+// has to prove they beat a number everyone can see. A bid that never takes
+// the lead stays hidden; only the fact that it did not improve on the current
+// low is public. Former leading amounts remain visible in earlier transactions.
+//
+// Phases: 1 = bidding open, 2 = reveal, 3 = finalized.
 export ledger auctionPhase: Map<Bytes<32>, Uint<8>>;
 export ledger bids: Map<Bytes<32>, Bytes<32>>;
 export ledger bidCounts: Map<Bytes<32>, Uint<64>>;
+export ledger revealedCounts: Map<Bytes<32>, Uint<64>>;
 export ledger auctionCount: Uint<64>;
+// persistentHash(ownerSecret). Possession of the secret is the owner check.
+export ledger auctionOwner: Map<Bytes<32>, Bytes<32>>;
+// persistentHash(bidderSecret), keyed like `bids`. Possession is the right to reveal.
+export ledger bidAuth: Map<Bytes<32>, Bytes<32>>;
+export ledger bidRevealed: Map<Bytes<32>, Boolean>;
+// Public pseudonym of the lowest revealed bid, and that bid's amount.
+export ledger winningBidder: Map<Bytes<32>, Bytes<32>>;
+export ledger winningBid: Map<Bytes<32>, Uint<64>>;
 
-witness bidAmount(): Bytes<32>;
+witness bidAmount(): Uint<64>;
 witness bidNonce(): Bytes<32>;
+witness ownerSecret(): Bytes<32>;
+witness bidderSecret(): Bytes<32>;
 
 constructor() {
   auctionCount = 0;
 }
 
-// Open a new auction for a job. The auction id is public — it is how bidders
-// find the auction; the job's requirements live behind the marketplace
-// contract's intent commitment, not here.
+// The buyer who opened the auction. The secret never leaves their browser;
+// the chain only ever stores persistentHash(secret).
+circuit assertOwner(auctionId: Bytes<32>): [] {
+  assert(auctionOwner.member(disclose(auctionId)), "auction not found");
+  const secret = ownerSecret();
+  const commitment = persistentHash<Bytes<32>>(secret);
+  assert(auctionOwner.lookup(disclose(auctionId)) == disclose(commitment), "not the auction owner");
+}
+
+// The provider who committed this bid. bidderId is a public pseudonym; the
+// secret that hashes to `bidAuth` is what actually authorizes the reveal.
+circuit assertBidder(bidKey: Bytes<32>): [] {
+  const secret = bidderSecret();
+  const commitment = persistentHash<Bytes<32>>(secret);
+  assert(bidAuth.lookup(disclose(bidKey)) == disclose(commitment), "not your bid");
+}
+
+// Open a new auction. The caller becomes its owner by committing to a secret
+// held in local private state. The auction id is public — it is how bidders
+// find the auction.
 export circuit createAuction(auctionId: Bytes<32>): [] {
   assert(!auctionPhase.member(disclose(auctionId)), "auction already exists");
+  const secret = ownerSecret();
+  const ownerCommitment = persistentHash<Bytes<32>>(secret);
+  auctionOwner.insert(disclose(auctionId), disclose(ownerCommitment));
   auctionPhase.insert(disclose(auctionId), 1);
   bidCounts.insert(disclose(auctionId), 0);
+  revealedCounts.insert(disclose(auctionId), 0);
   auctionCount = disclose((auctionCount + 1) as Uint<64>);
 }
 
-// Commit a sealed bid. The bidder supplies amount and nonce privately; only
+// Commit a sealed bid. Amount and nonce stay private; only
 // persistentCommit(amount, nonce) is published. bidderId is a caller-chosen
-// pseudonym (one bid per pseudonym per auction).
+// pseudonym (one bid per pseudonym per auction). The bidder secret is what
+// they will have to show again to reveal this bid.
 export circuit commitBid(auctionId: Bytes<32>, bidderId: Bytes<32>): [] {
   assert(auctionPhase.member(disclose(auctionId)), "auction not found");
   assert(auctionPhase.lookup(disclose(auctionId)) == 1, "bidding is closed");
 
   const amount = bidAmount();
   const nonce = bidNonce();
-  const commitment = persistentCommit<Bytes<32>>(amount, nonce);
+  const commitment = persistentCommit<Uint<64>>(amount, nonce);
 
-  // One sealed bid per (auction, bidder) slot, under a domain-separated key.
   const bidKey = persistentHash<Vector<2, Bytes<32>>>([auctionId, bidderId]);
   assert(!bids.member(disclose(bidKey)), "bid already committed");
 
+  const secret = bidderSecret();
+  const auth = persistentHash<Bytes<32>>(secret);
+
   bids.insert(disclose(bidKey), disclose(commitment));
+  bidAuth.insert(disclose(bidKey), disclose(auth));
   const n = bidCounts.lookup(disclose(auctionId));
   bidCounts.insert(disclose(auctionId), disclose((n + 1) as Uint<64>));
 }
 
-// Close the bidding window. After this no further commitments are accepted;
-// the reveal phase (Level 5) operates on the frozen set of commitments.
+// Close the bidding window. Only the owner can do this. Afterward no further
+// commitments are accepted and reveal opens on the frozen set.
 export circuit closeBidding(auctionId: Bytes<32>): [] {
-  assert(auctionPhase.member(disclose(auctionId)), "auction not found");
+  assertOwner(auctionId);
   assert(auctionPhase.lookup(disclose(auctionId)) == 1, "bidding already closed");
   auctionPhase.insert(disclose(auctionId), 2);
+}
+
+// Reveal a sealed bid. The contract checks the bidder secret and that
+// persistentCommit(amount, nonce) matches the commitment stored at bidding
+// time. The first revealed bid becomes the leader. A later bid replaces it
+// only when it is strictly lower; that new amount is published. A bid that
+// does not improve the low is marked revealed and its amount stays off the
+// ledger. Ties keep the earlier reveal.
+export circuit revealBid(auctionId: Bytes<32>, bidderId: Bytes<32>): [] {
+  assert(auctionPhase.member(disclose(auctionId)), "auction not found");
+  assert(auctionPhase.lookup(disclose(auctionId)) == 2, "reveal phase is closed");
+
+  const bidKey = persistentHash<Vector<2, Bytes<32>>>([auctionId, bidderId]);
+  assert(bids.member(disclose(bidKey)), "bid not found");
+  assert(!bidRevealed.member(disclose(bidKey)), "bid already revealed");
+
+  assertBidder(bidKey);
+
+  const amount = bidAmount();
+  const nonce = bidNonce();
+  const commitment = persistentCommit<Uint<64>>(amount, nonce);
+  assert(bids.lookup(disclose(bidKey)) == disclose(commitment), "reveal does not match commitment");
+
+  bidRevealed.insert(disclose(bidKey), true);
+  const revealed = revealedCounts.lookup(disclose(auctionId));
+  revealedCounts.insert(disclose(auctionId), disclose((revealed + 1) as Uint<64>));
+
+  const haveBest = winningBidder.member(disclose(auctionId));
+  if (haveBest) {
+    const best = winningBid.lookup(disclose(auctionId));
+    if (disclose(amount < best)) {
+      winningBidder.insert(disclose(auctionId), disclose(bidderId));
+      winningBid.insert(disclose(auctionId), disclose(amount));
+    }
+  } else {
+    winningBidder.insert(disclose(auctionId), disclose(bidderId));
+    winningBid.insert(disclose(auctionId), disclose(amount));
+  }
+}
+
+// Freeze the winner. Only the owner can finalize, and only during reveal,
+// after at least one bid has been revealed. Unrevealed bids cannot win.
+// This records the result; it does not move funds (the auction does not
+// custody a payment).
+export circuit finalizeAuction(auctionId: Bytes<32>): [] {
+  assertOwner(auctionId);
+  assert(auctionPhase.lookup(disclose(auctionId)) == 2, "auction is not in reveal");
+  assert(revealedCounts.lookup(disclose(auctionId)) > 0, "no revealed bids");
+  assert(winningBidder.member(disclose(auctionId)), "no winner");
+  auctionPhase.insert(disclose(auctionId), 3);
 }
