@@ -3,7 +3,7 @@
   --surface: #12121a;
   --border: rgba(255, 255, 255, 0.06);
   --text: #e4e4e7;
-  --text-dim: #71717a;
+  --text-dim: #c4c4cc;
   --accent: #7c3aed;
   --accent-hover: #6d28d9;
   --success: #22c55e;
@@ -17,7 +17,7 @@
 }
 
 body {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -89,14 +89,23 @@ header h1 {
 }
 
 .btn.secondary {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
-.btn.secondary:hover {
-  color: var(--text);
-  border-color: var(--text-dim);
+.btn.secondary:hover:not(:disabled) {
+  border-color: var(--text);
+  background: #1c1c27;
+}
+
+.btn:focus-visible,
+.input-group input:focus-visible,
+.input-group select:focus-visible,
+.explorer-link:focus-visible,
+.wallet-hint a:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .status {
@@ -108,14 +117,18 @@ header h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
 .address {
   font-size: 0.75rem;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .label {
@@ -169,7 +182,9 @@ header h1 {
   letter-spacing: 0.05em;
 }
 
-.input-group input {
+.input-group input,
+.input-group select {
+  display: block;
   width: 100%;
   padding: 10px 12px;
   background: var(--bg);
@@ -177,11 +192,27 @@ header h1 {
   color: var(--text);
   font-family: inherit;
   font-size: 0.8rem;
+  color-scheme: dark;
 }
 
-.input-group input:focus {
-  outline: none;
+.input-group select:disabled {
+  cursor: not-allowed;
+}
+
+.input-group input:focus,
+.input-group select:focus {
   border-color: var(--accent);
+}
+
+.wallet-hint {
+  margin-top: 12px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.wallet-hint a {
+  color: var(--text);
 }
 
 .input-group .btn {

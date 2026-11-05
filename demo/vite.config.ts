@@ -15,6 +15,10 @@ export default defineConfig({
       '@midnight-ntwrk/compact-runtime': fileURLToPath(
         new URL('./node_modules/@midnight-ntwrk/compact-runtime', import.meta.url),
       ),
+      // isomorphic-ws's browser build is a default export. The indexer client
+      // imports `* as ws` and reads `ws.WebSocket`, which Rollup then warns is
+      // missing. Point it at a browser shim that exposes the global constructor.
+      'isomorphic-ws': fileURLToPath(new URL('./src/shims/isomorphic-ws.ts', import.meta.url)),
     },
   },
   // Cast: the wasm plugin's CJS/ESM-interop types read as non-callable under the

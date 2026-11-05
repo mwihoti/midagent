@@ -302,14 +302,34 @@ yarn env:up && yarn test:local && yarn env:down   # or: yarn validate
 ```bash
 cd demo
 npm install
-npm run sync:zk    # copy all four contracts' ZK keys/zkir into public/contract/
+npm run sync:zk    # copy all five contracts' ZK keys/zkir into public/contract/
 npm run dev        # http://localhost:5173
 ```
 
 Pick a **wallet** and **network**, Connect, then Deploy a contract and Register
 an Agent. No local proof server needed for the DApp — the wallet does the
-proving. Deploying the site: it's a static SPA (`demo/vercel.json` included); on
-Vercel set the project **Root Directory** to `demo`.
+proving.
+
+## Deploy to Vercel
+
+The DApp is a static Vite app. Create the Vercel project with **Root Directory**
+set to `demo`. `demo/vercel.json` already sets the install, the build, the
+output directory, and an SPA rewrite that leaves `/contract/` files alone.
+
+| | |
+|---|---|
+| Root directory | `demo` |
+| Install | `npm install` |
+| Build | `npm run build` |
+| Output | `dist` |
+
+Do not set `VITE_BASE`. That variable exists only so GitHub Pages can serve the
+app under `/midagent/`. On Vercel the default base `/` is the right one.
+
+Run `npm run sync:zk` before you deploy so `demo/public/contract` contains every
+circuit, including the auction `revealBid` and `finalizeAuction` keys. The
+browser fetches those files from `/contract/<name>/` when the wallet proves a
+transaction.
 
 ---
 

@@ -113,6 +113,7 @@ function App() {
         setTxResult(`${CONTRACTS[key].label} deployed at ${result.contractAddress}`);
       } catch (err: any) {
         console.error('Deploy error:', err);
+        setTxResult(null);
         setError(`${CONTRACTS[key].label}: ${err.message || 'Deploy failed'}`);
       } finally {
         setDeploying(null);
@@ -159,6 +160,7 @@ function App() {
       );
     } catch (err: any) {
       console.error('Call error:', err);
+      setTxResult(null);
       setError(err.message || 'Circuit call failed');
     } finally {
       setCallingCircuit(false);
@@ -206,6 +208,7 @@ function App() {
       );
     } catch (err: any) {
       console.error('Prove error:', err);
+      setTxResult(null);
       setError(err.message || 'Ownership proof failed');
     } finally {
       setProving(false);
@@ -321,6 +324,7 @@ function App() {
         }
       } catch (err: any) {
         console.error('Auction error:', err);
+        setTxResult(null);
         setError(err.message || `Auction ${action} failed`);
       } finally {
         setAuctionBusy(null);
@@ -340,6 +344,7 @@ function App() {
       }
     } catch (err: any) {
       console.error('Auction read error:', err);
+      setTxResult(null);
       setError(err.message || 'Could not read the auction');
     } finally {
       setAuctionBusy(null);
@@ -396,6 +401,23 @@ function App() {
                 {wallets.find((w) => w.key === selectedWallet)?.label ?? 'Wallet'}{' '}
                 ({network})
               </button>
+              {wallets.length === 0 && (
+                <p className="wallet-hint">
+                  No wallet detected. Install{' '}
+                  <a
+                    href="https://chromewebstore.google.com/detail/lace/gafhhkghbfjjkeiendhlofajokpaflmk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Lace
+                  </a>{' '}
+                  or{' '}
+                  <a href="https://1am.xyz/" target="_blank" rel="noopener noreferrer">
+                    1AM
+                  </a>
+                  , then reload this page.
+                </p>
+              )}
             </div>
           )}
           {walletStatus === 'connecting' && (
@@ -416,7 +438,7 @@ function App() {
           )}
           {walletStatus === 'error' && (
             <div className="error-state">
-              <p className="error">{error}</p>
+              <p className="error" role="alert">{error}</p>
               <button className="btn primary" onClick={handleConnect}>
                 Retry
               </button>
@@ -656,7 +678,7 @@ function App() {
         {error && walletStatus !== 'error' && (
           <section className="card error-card">
             <h2>Error</h2>
-            <p className="error">{error}</p>
+            <p className="error" role="alert">{error}</p>
           </section>
         )}
 
