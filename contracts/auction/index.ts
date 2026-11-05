@@ -20,14 +20,12 @@ export const CompiledAuctionContract = CompiledContract.make(
   Contract,
 ).pipe(
   CompiledContract.withWitnesses({
-    bidAmount: (_context: any): [any, Uint8Array] => {
-      const data = new Uint8Array(32);
-      return [_context.privateState, data];
-    },
-    bidNonce: (_context: any): [any, Uint8Array] => {
-      const data = new Uint8Array(32);
-      return [_context.privateState, data];
-    },
+    // Deploy does not call circuits. Real witnesses are supplied by the DApp
+    // (browser private state) and by the simulator tests.
+    bidAmount: (_context: any): [any, bigint] => [_context.privateState, 0n],
+    bidNonce: (_context: any): [any, Uint8Array] => [_context.privateState, new Uint8Array(32)],
+    ownerSecret: (_context: any): [any, Uint8Array] => [_context.privateState, new Uint8Array(32)],
+    bidderSecret: (_context: any): [any, Uint8Array] => [_context.privateState, new Uint8Array(32)],
   }),
   CompiledContract.withCompiledFileAssets(zkConfigPath),
 );
