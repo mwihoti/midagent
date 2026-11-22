@@ -28,8 +28,10 @@ function writeAll(map: SecretMap): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   } catch {
-    // Storage unavailable (private browsing, quota). Secrets then live only for
-    // this page session, which still works for a single register→prove flow.
+    // Storage unavailable (blocked by policy, some in-app WebViews, quota):
+    // nothing is persisted, and there is no in-memory fallback. Callers that
+    // need a secret to persist must verify it was saved (see
+    // ensureRandomSecret).
   }
 }
 
@@ -76,6 +78,39 @@ export function setRandomSecret(name: string, size = 32): Uint8Array {
   crypto.getRandomValues(bytes);
   setSecret(name, bytes);
   return bytes;
+}
+
+/**
+ * Return the stored secret `name`, generating and storing a random one first if
+ * none exists. Used for long-lived identity secrets (the ScamShield issuer and
+ * reporter secrets) that must be unguessable AND stable: regenerating one would
+ * orphan the on-chain commitment derived from it.
+ */
+export function ensureRandomSecret(name: string, size = 32): Uint8Array {
+  if (hasSecret(name)) return getSecret(name, size);
+  const bytes = setRandomSecret(name, size);
+  // writeAll() swallows storage errors. Make sure the secret really persisted:
+  // a commitment derived from an unsaved secret would be orphaned forever
+  // (an issuer could enroll it, but no report could ever be made with it).
+  if (toHex(getSecret(name, size)) !== toHex(bytes)) {
+    throw new Error(
+      'This browser cannot store secrets (storage is blocked or full). ScamShield needs persistent storage. Try another browser or turn off private mode.',
+    );
+  }
+  return bytes;
+}
+
+/**
+ * Name of a secret scoped to one contract instance, e.g.
+ * `reporterSecret:<address>`. ScamShield keeps a SEPARATE issuer / reporter
+ * secret per registry, so a member of two registries has unrelated public
+ * commitments in each, and two registries deployed from one browser have
+ * unrelated issuer keys — nothing public links them.
+ */
+export function scopedName(name: string, contractAddress: string): string {
+  const addr = String(contractAddress).trim().toLowerCase().replace(/^0x/, '');
+  if (!addr) throw new Error(`No contract address to scope ${name} to`);
+  return `${name}:${addr}`;
 }
 
 /**
