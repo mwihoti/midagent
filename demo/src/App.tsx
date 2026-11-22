@@ -782,17 +782,21 @@ function App() {
             <textarea
               id="smsText"
               rows={5}
+              spellCheck={false}
+              autoComplete="off"
               value={smsText}
               onChange={(e) => setSmsText(e.target.value)}
-              placeholder="e.g. Umepokea Ksh 3,500 kimakosa. Tafadhali rudisha kwa 0712 345 678"
+              placeholder="e.g. Umepokea Ksh 3,500 kimakosa. Tafadhali rudisha kwa 07XX XXX XXX"
             />
             <label htmlFor="smsSender">Sender (optional)</label>
             <input
               id="smsSender"
               type="text"
+              spellCheck={false}
+              autoComplete="off"
               value={smsSender}
               onChange={(e) => setSmsSender(e.target.value)}
-              placeholder="e.g. MPESA or 0712 345 678"
+              placeholder="e.g. MPESA or 07XX XXX XXX"
             />
           </div>
           <button
@@ -808,7 +812,7 @@ function App() {
               <p className={`scam-verdict ${check.result.label}`}>
                 {VERDICT_TEXT[check.result.label]}
                 <span className="scam-score">
-                  {Math.round(check.result.score * 100)}% scam likelihood
+                  warning score {Math.round(check.result.score * 100)}/100
                 </span>
               </p>
               {check.result.signals.length === 0 ? (
@@ -943,7 +947,7 @@ function App() {
                     type="text"
                     value={reportPhone}
                     onChange={(e) => setReportPhone(e.target.value)}
-                    placeholder="e.g. 0712 345 678"
+                    placeholder="e.g. 07XX XXX XXX"
                   />
                   <button
                     className="btn primary"
