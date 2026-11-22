@@ -1,0 +1,149 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// ScamShield fraud registry — anonymous, Sybil-resistant community scam
+// reports for mobile-money numbers (M-Pesa style; Kenya first).
+//
+// Who is who:
+//   * The ISSUER is a community organisation (SACCO, chama, NGO, church group)
+//     that verifies its members OFFLINE — in person, by phone, by ID — and then
+//     enrolls each member's reporter commitment on chain. Only the holder of the
+//     issuer secret can enroll; the chain stores just a domain-separated hash of
+//     that secret (issuerKey), never the secret itself.
+//   * A REPORTER is an enrolled member. They hold a random reporter secret on
+//     their own device; the issuer only ever sees (and enrolls) the commitment
+//     reporterCommitment(sk) = H("scamshield:reporter", sk).
+//
+// Public ledger: the issuer key, the Merkle tree of enrolled reporter
+// commitments (and the set of enrolled commitments used to reject duplicate
+// enrollment — the commitments are already public as tree leaves), the
+// reporter count, the set of spent report nullifiers, and per-target report
+// counts keyed by targetKey(target).
+//
+// Private witnesses: the issuer secret, the reporter secret, and the reporter's
+// Merkle path. A report discloses ONLY (a) a Merkle root the tree has held at
+// some point, (b) the report nullifier, and (c) the target. It never discloses
+// the reporter secret, the reporter commitment, or the path — so the chain
+// learns "some enrolled member reported this number", not which member.
+//
+// Sybil resistance: one report per (reporter, target). The nullifier is
+// H("scamshield:nullifier", sk, target, registryAddress): the same member
+// reporting the same number twice in this registry collides and is rejected,
+// while the same member's reports of DIFFERENT numbers produce unrelated
+// nullifiers and cannot be linked to each other. Binding the nullifier to this
+// deployment's (already public) address means the same secret reporting the
+// same number in two different registries also yields unrelated nullifiers.
+// The number of distinct reporters is capped by what the issuer enrolls; the
+// registry is exactly as Sybil-resistant as the issuer's offline checks.
+//
+// Targets: `target` is the 32-byte, zero-padded UTF-8 encoding of
+// "msisdn:2547XXXXXXXX" (normalised E.164, no '+'). targetKey(target) is
+// deliberately NOT hiding: phone numbers are a small, enumerable space, so
+// anyone can hash a candidate number and check whether it has been reported.
+// That is the point — lookups must work for anyone about to send money. The
+// privacy guarantee of this contract is about REPORTERS, not targets.
+//
+// Threat notes:
+//   * A dishonest or compromised issuer can enroll fake members and inflate
+//     counts. Mitigation is social/off-chain (multiple issuers, issuer
+//     reputation); the contract only guarantees "one report per enrolled
+//     secret per number".
+//   * A reporter who leaks their secret lets the holder report in their name
+//     (once per number) and lets anyone recompute — and so link — the
+//     nullifiers of that member's past reports for any guessed number.
+//   * Timing/network metadata of the submitting wallet is outside the scope of
+//     the ZK proof; submit through a wallet not tied to your identity.
+//   * The disclosed root names a tree snapshot, so the anonymity set of a
+//     report is "members enrolled when that root was current". Clients should
+//     build paths against the LATEST root (the wrapper does) — a deliberately
+//     old root shrinks the set to early members.
+//   * The historic tree accepts proofs against ANY past root. There is no
+//     revocation in this MVP: an enrolled member stays enrolled.
+//   * Membership linkage across registries: reporterCommitment(sk) does not
+//     depend on the registry, so a member who reuses ONE secret in several
+//     registries has the same public leaf in each, and anyone comparing the
+//     public `enrolled` sets learns it is the same member. Clients must use a
+//     separate secret per registry (the demo DApp keys secrets by contract
+//     address). Reports stay unlinkable across registries either way, because
+//     the nullifier includes the registry address.
+//   * The anonymity set is only as large as the number of enrolled members.
+//     With very few members (reporterCount is public), a report can be
+//     narrowed down to one of a handful of people the issuer knows.
+
+export ledger issuerKey: Bytes<32>;
+export ledger reporters: HistoricMerkleTree<16, Bytes<32>>;
+export ledger enrolled: Set<Bytes<32>>;
+export ledger reporterCount: Uint<64>;
+export ledger nullifiers: Set<Bytes<32>>;
+export ledger reportCounts: Map<Bytes<32>, Uint<64>>;
+export ledger totalReports: Uint<64>;
+
+witness issuerSecret(): Bytes<32>;
+witness reporterSecret(): Bytes<32>;
+witness reporterPath(leaf: Bytes<32>): MerkleTreePath<16, Bytes<32>>;
+
+// Public commitment to a reporter secret. The member computes this on their
+// own device and hands ONLY this value to the issuer for enrollment.
+export pure circuit reporterCommitment(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "scamshield:reporter"), sk]);
+}
+
+// Lookup key for a reported number. Not hiding — see the header.
+export pure circuit targetKey(target: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "scamshield:target"), target]);
+}
+
+// Issuer authority key, derived from the issuer secret.
+pure circuit deriveIssuerKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "scamshield:issuer"), sk]);
+}
+
+// Per-(reporter, target, registry) report nullifier. `registry` is this
+// contract's own (public) address, so nullifiers from different deployments
+// cannot be matched against each other.
+pure circuit reportNullifier(sk: Bytes<32>, target: Bytes<32>, registry: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([pad(32, "scamshield:nullifier"), sk, target, registry]);
+}
+
+// The deployer becomes the issuer. The deploying client MUST supply a fresh
+// random issuer secret via the issuerSecret witness.
+constructor() {
+  issuerKey = disclose(deriveIssuerKey(issuerSecret()));
+  reporterCount = 0;
+  totalReports = 0;
+}
+
+// Issuer-only: enroll a verified member's reporter commitment.
+export circuit enrollReporter(commitment: Bytes<32>): [] {
+  assert(deriveIssuerKey(issuerSecret()) == issuerKey, "not the issuer");
+  const c = disclose(commitment);
+  assert(!enrolled.member(c), "reporter already enrolled");
+  enrolled.insert(c);
+  reporters.insert(c);
+  reporterCount = disclose((reporterCount + 1) as Uint<64>);
+}
+
+// Anonymously report a scam number. Proves membership in the reporter tree in
+// zero knowledge; discloses only the tree root, the nullifier and the target.
+export circuit reportScam(target: Bytes<32>): [] {
+  const sk = reporterSecret();
+  const c = reporterCommitment(sk);
+  const path = reporterPath(c);
+  assert(path.leaf == c, "path is not for this reporter");
+  assert(reporters.checkRoot(disclose(merkleTreePathRoot<16, Bytes<32>>(path))),
+         "reporter not enrolled");
+
+  const nul = disclose(reportNullifier(sk, target, kernel.self().bytes));
+  assert(!nullifiers.member(nul), "already reported this number");
+  nullifiers.insert(nul);
+
+  const key = disclose(targetKey(target));
+  if (reportCounts.member(key)) {
+    const n = reportCounts.lookup(key);
+    reportCounts.insert(key, disclose((n + 1) as Uint<64>));
+  } else {
+    reportCounts.insert(key, 1);
+  }
+  totalReports = disclose((totalReports + 1) as Uint<64>);
+}
