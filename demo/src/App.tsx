@@ -235,6 +235,7 @@ function App() {
         contractAddress,
         'registerAgent',
         [toFixedBytes(agentId)],
+        (id) => setTxResult(`Registration submitted, waiting for confirmation… Tx: ${id}`),
       );
 
       setTxResult(
@@ -242,6 +243,7 @@ function App() {
       );
     } catch (err: any) {
       console.error('Call error:', err);
+      if (err.txId) setTxResult(null);
       setError(err.message || 'Circuit call failed');
     } finally {
       setCallingCircuit(false);
@@ -282,6 +284,7 @@ function App() {
         contractAddress,
         'proveOwnership',
         [toFixedBytes(agentId)],
+        (id) => setTxResult(`Ownership proof submitted, waiting for confirmation… Tx: ${id}`),
       );
 
       setTxResult(
@@ -289,6 +292,7 @@ function App() {
       );
     } catch (err: any) {
       console.error('Prove error:', err);
+      if (err.txId) setTxResult(null);
       setError(err.message || 'Ownership proof failed');
     } finally {
       setProving(false);
@@ -319,6 +323,7 @@ function App() {
       if (action === 'bid' && !bidAmount) return;
       setAuctionBusy(action);
       setError(null);
+      let releaseIfRejected: (() => void) | undefined;
 
       try {
         const { createSession } = await import('./wallet');
@@ -342,6 +347,8 @@ function App() {
         );
         const alreadySent = auctionSent.current.has(sentKey);
         const markSent = () => void auctionSent.current.add(sentKey);
+        // Only a first attempt may release: an earlier one may be why a retry fails.
+        if (!alreadySent) releaseIfRejected = () => void auctionSent.current.delete(sentKey);
         const submitted = (id: string) =>
           setTxResult(`Auction ${action} submitted, waiting for confirmation… Tx: ${id}`);
 
@@ -422,6 +429,8 @@ function App() {
         }
       } catch (err: any) {
         console.error('Auction error:', err);
+        if (err.rejected) releaseIfRejected?.();
+        if (err.txId) setTxResult(null);
         setError(err.message || `Auction ${action} failed`);
       } finally {
         setAuctionBusy(null);
@@ -527,6 +536,7 @@ function App() {
       );
     } catch (err: any) {
       console.error('Enroll error:', err);
+      if (err.txId) setTxResult(null);
       setError(friendlyRegistryError(err));
     } finally {
       setRegistryBusy(null);
@@ -580,6 +590,7 @@ function App() {
       );
     } catch (err: any) {
       console.error('Report error:', err);
+      if (err.txId) setTxResult(null);
       setError(friendlyRegistryError(err));
     } finally {
       setRegistryBusy(null);
