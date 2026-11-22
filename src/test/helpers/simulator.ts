@@ -42,8 +42,22 @@ export function initContext<PS>(
   );
 }
 
-/** True when `haystack` contains `needle` — used to prove a secret did NOT leak. */
+/**
+ * True when `haystack` contains `needle` — used to prove a secret did NOT leak.
+ *
+ * The runtime's value encoding drops trailing zero bytes (a Bytes<32> ending in
+ * 0x00 is stored as 31 bytes), so a full-width search would miss such a value
+ * and make a negative ("did not leak") check pass vacuously. Search for the
+ * needle with trailing zeros trimmed, and refuse needles that become too short
+ * to be meaningful.
+ */
 export function containsBytes(haystack: Uint8Array, needle: Uint8Array): boolean {
-  if (needle.length > haystack.length) return false;
-  return Buffer.from(haystack).includes(Buffer.from(needle));
+  let end = needle.length;
+  while (end > 0 && needle[end - 1] === 0) end--;
+  if (end < 8) {
+    throw new Error('containsBytes: needle too short after trimming trailing zeros');
+  }
+  const n = needle.subarray(0, end);
+  if (n.length > haystack.length) return false;
+  return Buffer.from(haystack).includes(Buffer.from(n));
 }
