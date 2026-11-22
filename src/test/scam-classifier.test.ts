@@ -486,6 +486,9 @@ describe('ScamShield phone helpers', () => {
       ['0712-345-678', '254712345678'],
       ['(0712) 345 678', '254712345678'],
       ['  +254-110-345-678 ', '254110345678'],
+      ['0120 345 678', '254120345678'],
+      ['0140 345 678', '254140345678'],
+      ['0182 345 678', '254182345678'],
     ];
     for (const [input, expected] of cases) {
       expect(normalizeKenyanMsisdn(input), input).toBe(expected);
@@ -508,8 +511,8 @@ describe('ScamShield phone helpers', () => {
       '07123+45678',
       '100', // short code
       'MPESA',
-      '0123456789', // 012X: not an allocated mobile range
-      '0199999999', // 019X: not an allocated mobile range
+      '0123456789', // 0123: not assigned
+      '0199999999', // 0199: reserved for network testing
     ];
     for (const input of bad) {
       expect(normalizeKenyanMsisdn(input), input).toBeNull();

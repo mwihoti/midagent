@@ -13,16 +13,20 @@
 /** Characters allowed in a raw phone-number string before normalisation. */
 const ALLOWED_CHARS = /^[+\d\s\-().]+$/;
 
-/** Mobile subscriber part after the country code: 7XXXXXXXX, or the allocated 1-series 10X/11X. */
-const SUBSCRIBER = '(7\\d{8}|1[01]\\d{7})';
+/**
+ * Mobile subscriber part after the country code: 7XXXXXXXX, or an assigned
+ * 1-series range: 100-108, 110-119, 120/124/126/128, 130 and 140-146 (CA
+ * Numbering Plan, April 2026), plus 180-182 (released by Safaricom, Aug 2026).
+ */
+const SUBSCRIBER = '(7\\d{8}|1(?:0[0-8]|1\\d|2[0468]|30|4[0-6]|8[0-2])\\d{6})';
 
 /**
  * Normalise a Kenyan mobile number to "2547XXXXXXXX" / "2541XXXXXXXX".
  *
  * Accepts: 07XXXXXXXX, 01XXXXXXXX, 7XXXXXXXX, 1XXXXXXXX, +2547XXXXXXXX,
  * 2547XXXXXXXX (and the 1-series equivalents), with optional spaces, dashes,
- * dots and parentheses. Only the allocated 1-series ranges (010X, 011X) are
- * accepted; 012X-019X are not mobile ranges. A '+' is only accepted at the
+ * dots and parentheses. Only the assigned 1-series ranges (see SUBSCRIBER)
+ * are accepted. A '+' is only accepted at the
  * very start and only in front of the 254 country code. Anything else (landlines, short codes,
  * foreign numbers, letters, "+0712…", "25407…") returns null.
  */
