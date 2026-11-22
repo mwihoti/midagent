@@ -106,8 +106,11 @@ const OFFICIAL_DOMAINS = [
   'kcbgroup.com',
   'airtelkenya.com',
   'helb.co.ke',
+  'equitybankgroup.com',
+  'ncbagroup.com',
+  'm-pesa.africa',
 ];
-const BRAND_IN_DOMAIN = /(safaricom|m-?pesa|fuliza|kra|ecitizen|equity|kcb|airtel|helb|ncba)/;
+const BRAND_IN_DOMAIN = /(safaricom|m-?pesa|fuliza|(?<![a-z])kra|ecitizen|equity|kcb|airtel|helb|ncba)/;
 
 // ---------------------------------------------------------------------------
 // Feature table (id, weight, description). Weights are hand-set; see the
@@ -162,7 +165,7 @@ export const FEATURES = {
   'lookalike-domain': {
     weight: 1.5,
     description:
-      'Contains a link whose address uses a brand name (Safaricom, M-Pesa, KRA, a bank) but is not that organisation\'s official website.',
+      'Contains a link whose address uses a brand name (Safaricom, M-Pesa, KRA, a bank) but is not on our short list of official websites.',
   },
   /** URL shorteners and cheap TLDs hide where a link goes. */
   'shortened-or-suspicious-link': {

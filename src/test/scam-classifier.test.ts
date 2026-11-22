@@ -495,6 +495,13 @@ describe('ScamShield phone helpers', () => {
     }
   });
 
+  it('does not call official or unrelated sites look-alikes', () => {
+    const fired = (host: string) =>
+      classifyMessage(`See https://${host}`).signals.some((s) => s.id === 'lookalike-domain');
+    for (const host of ['ncbagroup.com', 'm-pesa.africa', 'ukraine.com']) expect(fired(host)).toBe(false);
+    expect(fired('kra-refunds.com')).toBe(true);
+  });
+
   it('gives no credit for a contact name typed as the sender', () => {
     const text = 'Nitumie 2k haraka kwa hii namba mpya';
     for (const sender of ['Mum', 'John Kamau', 'friend@x.com']) {
