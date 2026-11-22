@@ -4,7 +4,7 @@
  * Secrets (issuer / reporter) are stored in local private state and handed to
  * the wallet's proving provider at proof time, which sees them in clear; the only values that ever reach the chain are the ones
  * the contract discloses: a reporter commitment at enrollment, and the Merkle
- * root, nullifier and target at report time.
+ * root, nullifier and target key at report time.
  */
 import { ensureRandomSecret, hasSecret, scopedName } from './privateState';
 import { CONTRACTS } from './compiledContract';

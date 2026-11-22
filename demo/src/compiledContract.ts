@@ -124,7 +124,7 @@ export const CONTRACTS: Record<ContractKey, ContractDef> = {
       // The circuit asks for the Merkle path to the reporter's own commitment.
       // ctx.ledger is the contract's public ledger as this client currently
       // sees it, so the path is built locally against the latest tree — which
-      // member we are never leaves the browser (only the path's root is public).
+      // member we are is never published (only the path's root is public).
       reporterPath: (ctx: any, leaf: Uint8Array): [any, any] => {
         const path = ctx.ledger.reporters.findPathForLeaf(leaf);
         if (!path) {

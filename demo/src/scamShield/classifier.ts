@@ -15,17 +15,17 @@
  *   - Explainability: the result lists every feature that fired with its
  *     weight, so the UI can show the user WHY a message was flagged (and
  *     teach them the pattern), instead of an opaque score.
- *   - Low-end phones: pure regex + arithmetic, runs in well under a
- *     millisecond on any device.
+ *   - Low-end phones: pure regex + arithmetic. Not yet benchmarked on
+ *     phones.
  *
  * MODEL
  *   z = BIAS + sum(weight_i for every feature i that fired)
  *   score = 1 / (1 + e^-z)
  *   label = 'scam' if score >= SCAM_THRESHOLD,
  *           'suspicious' if score >= SUSPICIOUS_THRESHOLD, else 'likely-safe'.
- *   With BIAS = -3 a message with no signals scores ~0.05. Roughly: one strong
- *   signal (PIN request, fake confirmation) -> 'suspicious'; two strong or one
- *   strong plus supporting signals -> 'scam'. Negative-weight features
+ *   With BIAS = -3 a message with no signals scores ~0.05. Roughly: a PIN
+ *   request alone -> 'suspicious'; a fake confirmation alone, or one strong
+ *   plus supporting signals -> 'scam'. Negative-weight features
  *   (official sender, "do not share your PIN" warnings) pull legitimate
  *   service messages down.
  *

@@ -23,7 +23,7 @@ import CompactStandardLibrary;
 //
 // Private witnesses: the issuer secret, the reporter secret, and the reporter's
 // Merkle path. A report discloses ONLY (a) a Merkle root the tree has held at
-// some point, (b) the report nullifier, and (c) the target. It never discloses
+// some point, (b) the report nullifier, (c) the target key. It never discloses
 // the reporter secret, the reporter commitment, or the path — so the chain
 // learns "some enrolled member reported this number", not which member.
 //
@@ -125,7 +125,7 @@ export circuit enrollReporter(commitment: Bytes<32>): [] {
 }
 
 // Anonymously report a scam number. Proves membership in the reporter tree in
-// zero knowledge; discloses only the tree root, the nullifier and the target.
+// zero knowledge; discloses only the tree root, the nullifier and the target key.
 export circuit reportScam(target: Bytes<32>): [] {
   const sk = reporterSecret();
   const c = reporterCommitment(sk);

@@ -82,8 +82,8 @@ export function setRandomSecret(name: string, size = 32): Uint8Array {
 
 /**
  * Return the stored secret `name`, generating and storing a random one first if
- * none exists. Used for long-lived identity secrets (the ScamShield issuer and
- * reporter secrets) that must be unguessable AND stable: regenerating one would
+ * none exists. Used for long-lived identity secrets (ScamShield reporter
+ * secrets) that must be unguessable AND stable: regenerating one would
  * orphan the on-chain commitment derived from it.
  */
 export function ensureRandomSecret(name: string, size = 32): Uint8Array {
@@ -114,9 +114,9 @@ export function scopedName(name: string, contractAddress: string): string {
 }
 
 /**
- * Read a secret. Returns zeroes if nothing was stored — a deploy never invokes
- * witnesses, so that path is harmless; a circuit call with no stored secret will
- * simply fail its commitment check, which is the correct behaviour.
+ * Read a secret. Returns zeroes if nothing was stored. Never rely on that for
+ * identity secrets: the fraud-registry constructor invokes a witness at deploy,
+ * so its witnesses check hasSecret first (requiredScoped).
  */
 export function getSecret(name: string, size = 32): Uint8Array {
   const stored = readAll()[name];
