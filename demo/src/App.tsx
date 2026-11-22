@@ -180,8 +180,11 @@ function App() {
         const compiled = await getCompiledContract(key);
         const result = await deployContract(
           session, walletApi, compiled,
-          (txId, address) =>
-            setTxResult(`${CONTRACTS[key].label} deploy submitted at ${address}, waiting for confirmation… Tx: ${txId}`),
+          (txId, address) => {
+            // Record it now: if confirmation never reaches us it may still land.
+            setDeployed((prev) => ({ ...prev, [key]: address }));
+            setTxResult(`${CONTRACTS[key].label} deploy submitted at ${address}, waiting for confirmation… Tx: ${txId}`);
+          },
           CONTRACTS[key].saveDeploySecrets,
         );
 
@@ -189,6 +192,10 @@ function App() {
         setTxResult(`${CONTRACTS[key].label} deployed at ${result.contractAddress}`);
       } catch (err: any) {
         console.error('Deploy error:', err);
+        if (err.rejected) {
+          setDeployed((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key)));
+          setTxResult(null);
+        }
         setError(`${CONTRACTS[key].label}: ${err.message || 'Deploy failed'}`);
       } finally {
         setDeploying(null);

@@ -127,6 +127,8 @@ function makePrivateStateProvider() {
   };
 }
 
+const CONFIRM_TIMEOUT_MS = 3 * 60_000;
+
 /**
  * Submit a finalized transaction and wait until the indexer reports it as
  * applied. The wallet's submitTransaction resolves to void as soon as the tx
@@ -149,9 +151,32 @@ async function submitAndConfirm(
   await walletApi.submitTransaction(toHex(finalTx.serialize()));
   console.log(`${label} tx submitted:`, txId);
   onSubmitted?.(txId);
-  const finalized = await session.publicDataProvider.watchForTxData(txId);
+  let finalized: { status: string };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // watchForTxData polls forever, so a dropped tx would never settle.
+    finalized = await Promise.race([
+      session.publicDataProvider.watchForTxData(txId),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timed out')), CONFIRM_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (cause) {
+    throw Object.assign(
+      new Error(
+        `Transaction ${txId} was submitted but is not confirmed yet. It may still land, so check it before retrying.`,
+      ),
+      { txId, cause },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
   if (finalized.status !== 'SucceedEntirely') {
-    throw new Error(`Transaction ${txId} was rejected on-chain (${finalized.status})`);
+    throw Object.assign(
+      new Error(`Transaction ${txId} was rejected on-chain (${finalized.status})`),
+      // Only FailEntirely guarantees that nothing was applied.
+      { txId, rejected: finalized.status === 'FailEntirely' },
+    );
   }
   return txId;
 }
