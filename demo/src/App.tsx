@@ -1,7 +1,49 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import './App.css';
 import { CONTRACTS, type ContractKey } from './compiledContract';
 import type { AuctionView } from './auctionView';
+import {
+  classifyMessage,
+  extractPhoneNumbers,
+  normalizeKenyanMsisdn,
+  type ClassificationResult,
+  type ScamLabel,
+} from './scamShield';
+import {
+  alreadyReportedHere,
+  enrolledReporterCount,
+  friendlyRegistryError,
+  hasIssuerSecret,
+  hasReporterSecret,
+  isEnrolled,
+  lookupNumber,
+  myReporterCommitment,
+  parseHex32,
+  phoneTarget,
+  rememberReport,
+  type RegistryLookup,
+} from './fraudRegistry';
+
+/**
+ * Below this many enrolled members, a report's anonymity set is small enough
+ * that the reporter may be identifiable, so the member is warned first.
+ */
+const MIN_ANON_SET = 10n;
+
+const VERDICT_TEXT: Record<ScamLabel, string> = {
+  scam: 'Likely scam',
+  suspicious: 'Suspicious',
+  'likely-safe': 'Likely safe',
+};
+
+/** 254712345678 -> +254 712 345 678 (display only). */
+function formatMsisdn(msisdn: string): string {
+  return `+${msisdn.slice(0, 3)} ${msisdn.slice(3, 6)} ${msisdn.slice(6, 9)} ${msisdn.slice(9)}`;
+}
+
+function scrollToCard(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 interface WalletChoice {
   key: string;
@@ -58,7 +100,30 @@ function App() {
     null | 'create' | 'bid' | 'close' | 'reveal' | 'finalize' | 'read'
   >(null);
   const [auctionView, setAuctionView] = useState<AuctionView | null>(null);
+  // Opens and bids already handed to the wallet. One that timed out or errored
+  // can still land, so a retry must reuse its secrets, never replace them.
+  const auctionSent = useRef(new Set<string>());
   const [txResult, setTxResult] = useState<string | null>(null);
+
+  // ScamShield: on-device message check (no wallet needed) …
+  const [smsText, setSmsText] = useState('');
+  const [smsSender, setSmsSender] = useState('');
+  const [check, setCheck] = useState<{
+    result: ClassificationResult;
+    numbers: string[];
+  } | null>(null);
+  // … and the anonymous community report registry (needs a wallet).
+  const [registryInput, setRegistryInput] = useState('');
+  const [myCommitment, setMyCommitment] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [enrollHex, setEnrollHex] = useState('');
+  const [reportPhone, setReportPhone] = useState('');
+  const [lookupPhone, setLookupPhone] = useState('');
+  const [lookup, setLookup] = useState<RegistryLookup | null>(null);
+  const [registryBusy, setRegistryBusy] = useState<
+    null | 'commitment' | 'enroll' | 'report' | 'lookup'
+  >(null);
+  const [registryNote, setRegistryNote] = useState<string | null>(null);
 
   const handleConnect = useCallback(async () => {
     setWalletStatus('connecting');
@@ -89,6 +154,8 @@ function App() {
     setConnectedWallet(null);
     setDeployed({});
     setTxResult(null);
+    setLookup(null);
+    setRegistryNote(null);
     setWalletStatus('disconnected');
     setError(null);
   }, []);
@@ -104,10 +171,19 @@ function App() {
         const { getCompiledContract } = await import('./compiledContract');
         const { deployContract } = await import('./contracts');
 
+        // Contract-specific prep, e.g. the fraud registry's constructor needs a
+        // random issuer secret to exist locally before it runs.
+        CONTRACTS[key].beforeDeploy?.();
+
         // Each contract has its own ZK assets, so build a session scoped to it.
         const session = createSession(config, key);
         const compiled = await getCompiledContract(key);
-        const result = await deployContract(session, walletApi, compiled);
+        const result = await deployContract(
+          session, walletApi, compiled,
+          (txId, address) =>
+            setTxResult(`${CONTRACTS[key].label} deploy submitted at ${address}, waiting for confirmation… Tx: ${txId}`),
+          CONTRACTS[key].saveDeploySecrets,
+        );
 
         setDeployed((prev) => ({ ...prev, [key]: result.contractAddress }));
         setTxResult(`${CONTRACTS[key].label} deployed at ${result.contractAddress}`);
@@ -248,30 +324,48 @@ function App() {
           saveSealedBid,
           activateBid,
           parseBidAmount,
+          sealedBidAmount,
         } = await import('./privateState');
 
         const session = createSession(config, 'auction');
         const compiled = await getCompiledContract('auction');
         const idBytes = toFixedBytes(auctionId);
+        const sentKey = JSON.stringify(
+          [contractAddress, action, auctionId, action === 'bid' ? bidderId : ''],
+        );
+        const alreadySent = auctionSent.current.has(sentKey);
+        const markSent = () => void auctionSent.current.add(sentKey);
+        const submitted = (id: string) =>
+          setTxResult(`Auction ${action} submitted, waiting for confirmation… Tx: ${id}`);
 
         let txId: string;
         let message: string;
 
         if (action === 'create') {
-          saveAuctionOwner(auctionId);
+          if (!alreadySent || !activateOwner(auctionId)) saveAuctionOwner(auctionId);
           ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'createAuction', [idBytes],
+            'createAuction', [idBytes], submitted, markSent,
           ));
           message =
             `Auction "${auctionId}" opened. The buyer key is stored only in this browser — ` +
             `only that key can close bidding and finalize.`;
         } else if (action === 'bid') {
           const amount = parseBidAmount(bidAmount);
-          saveSealedBid(auctionId, bidderId, amount);
+          const sentAmount = alreadySent ? sealedBidAmount(auctionId, bidderId) : null;
+          if (sentAmount === null) {
+            saveSealedBid(auctionId, bidderId, amount);
+          } else if (sentAmount === amount.toString()) {
+            activateBid(auctionId, bidderId);
+          } else {
+            throw new Error(
+              `A bid of ${sentAmount} as "${bidderId}" was already sent and may still land. ` +
+                'Retry with that amount, or use another bidder id.',
+            );
+          }
           ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'commitBid', [idBytes, toFixedBytes(bidderId)],
+            'commitBid', [idBytes, toFixedBytes(bidderId)], submitted, markSent,
           ));
           message =
             `Sealed bid committed to "${auctionId}" as "${bidderId}". ` +
@@ -284,7 +378,7 @@ function App() {
           }
           ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'closeBidding', [idBytes],
+            'closeBidding', [idBytes], submitted,
           ));
           message = `Bidding closed on "${auctionId}". Bidders can now reveal.`;
         } else if (action === 'reveal') {
@@ -295,7 +389,7 @@ function App() {
           }
           ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'revealBid', [idBytes, toFixedBytes(bidderId)],
+            'revealBid', [idBytes, toFixedBytes(bidderId)], submitted,
           ));
           message =
             `Bid revealed on "${auctionId}". If it is the lowest so far, the amount is now public; ` +
@@ -308,7 +402,7 @@ function App() {
           }
           ({ txId } = await callCircuit(
             session, walletApi, compiled, contractAddress,
-            'finalizeAuction', [idBytes],
+            'finalizeAuction', [idBytes], submitted,
           ));
           message = `Auction "${auctionId}" finalized. The lowest revealed bid is the winner.`;
         }
@@ -346,11 +440,207 @@ function App() {
     }
   }, [auctionId, refreshAuction]);
 
+  /**
+   * ScamShield on-device check. Pure local computation: the message text and
+   * sender never leave this browser (no fetch, no wallet, no chain).
+   */
+  const handleCheckMessage = useCallback(() => {
+    const result = classifyMessage(smsText, { sender: smsSender.trim() || undefined });
+    const numbers = extractPhoneNumbers(smsText);
+    const senderNumber = normalizeKenyanMsisdn(smsSender);
+    if (senderNumber && !numbers.includes(senderNumber)) numbers.unshift(senderNumber);
+    setCheck({ result, numbers });
+  }, [smsText, smsSender]);
+
+  // The registry to talk to: an address typed in (e.g. your community's
+  // registry), else the one deployed from this session.
+  const registryAddress = registryInput.trim() || deployed['fraud-registry'] || '';
+  const registryReady =
+    walletStatus === 'connected' && !!config && !!walletApi && !!registryAddress;
+
+  // Secrets (and so commitments) are per registry: a commitment shown for one
+  // registry must not linger when the user switches to another.
+  useEffect(() => {
+    setMyCommitment(null);
+    setCopied(false);
+    setLookup(null);
+  }, [registryAddress]);
+
+  const handleShowCommitment = useCallback(async () => {
+    if (!registryAddress) return;
+    setRegistryBusy('commitment');
+    setError(null);
+    try {
+      setMyCommitment(await myReporterCommitment(registryAddress));
+      setCopied(false);
+    } catch (err: any) {
+      console.error('Commitment error:', err);
+      setError(err.message || 'Could not compute reporter commitment');
+    } finally {
+      setRegistryBusy(null);
+    }
+  }, [registryAddress]);
+
+  const handleCopyCommitment = useCallback(async () => {
+    if (!myCommitment) return;
+    try {
+      await navigator.clipboard.writeText(myCommitment);
+      setCopied(true);
+    } catch {
+      setError('Copy failed — select the commitment text and copy it manually.');
+    }
+  }, [myCommitment]);
+
+  const handleEnroll = useCallback(async () => {
+    if (!registryReady || !enrollHex) return;
+    setRegistryBusy('enroll');
+    setError(null);
+    try {
+      const commitment = parseHex32(enrollHex);
+      if (!hasIssuerSecret(registryAddress)) {
+        throw new Error('No issuerSecret stored in this browser');
+      }
+      const { createSession } = await import('./wallet');
+      const { getCompiledContract } = await import('./compiledContract');
+      const { callCircuit } = await import('./contracts');
+      const session = createSession(config, 'fraud-registry');
+      // Fail before the (slow, paid) proof if the commitment is already in.
+      if (await isEnrolled(session.publicDataProvider, registryAddress, enrollHex)) {
+        throw new Error('reporter already enrolled');
+      }
+      const compiled = await getCompiledContract('fraud-registry');
+      const { txId } = await callCircuit(
+        session, walletApi, compiled, registryAddress,
+        'enrollReporter', [commitment],
+        (id) => setTxResult(`Enrollment submitted, waiting for confirmation… Tx: ${id}`),
+      );
+      setEnrollHex('');
+      setTxResult(
+        `Reporter enrolled. Only their commitment is on-chain. A report shows only that some enrolled member made it, so privacy grows as more members enrol. Tx: ${txId}`,
+      );
+    } catch (err: any) {
+      console.error('Enroll error:', err);
+      setError(friendlyRegistryError(err));
+    } finally {
+      setRegistryBusy(null);
+    }
+  }, [registryReady, enrollHex, config, walletApi, registryAddress]);
+
+  const handleReport = useCallback(async () => {
+    if (!registryReady || !reportPhone) return;
+    setRegistryBusy('report');
+    setError(null);
+    try {
+      const { msisdn, target } = phoneTarget(reportPhone);
+      if (!hasReporterSecret(registryAddress)) {
+        // No secret for this registry means this browser was never enrolled
+        // in it — fail before the (slow) proof rather than inside it.
+        throw new Error('No reporterSecret stored in this browser');
+      }
+      if (alreadyReportedHere(registryAddress, msisdn)) {
+        throw new Error('already reported this number');
+      }
+      const { createSession } = await import('./wallet');
+      const { getCompiledContract } = await import('./compiledContract');
+      const { callCircuit } = await import('./contracts');
+      const session = createSession(config, 'fraud-registry');
+      // A report hides WHICH enrolled member made it, nothing more. With few
+      // members that is weak protection, so say so before proving.
+      const n = await enrolledReporterCount(session.publicDataProvider, registryAddress);
+      if (
+        n < MIN_ANON_SET &&
+        !window.confirm(
+          `Only ${n} member${n === 1n ? ' is' : 's are'} enrolled in this registry. ` +
+            `Your report can be narrowed down to one of ${n} ${n === 1n ? 'person' : 'people'}, ` +
+            'and the issuer knows who they are. Report anyway?',
+        )
+      ) {
+        return;
+      }
+      const compiled = await getCompiledContract('fraud-registry');
+      // The proof shows "I am one of the enrolled members" and "I have not
+      // reported this number before" without revealing which member.
+      const { txId } = await callCircuit(
+        session, walletApi, compiled, registryAddress,
+        'reportScam', [target],
+        (id) => setTxResult(`Report submitted, waiting for confirmation… Tx: ${id}`),
+      );
+      rememberReport(registryAddress, msisdn);
+      setTxResult(
+        `Report recorded for ${formatMsisdn(msisdn)}. It shows only that one of the ${n} enrolled members reported it, not which one` +
+          (n < MIN_ANON_SET ? ' (a small group, so you may still be identifiable)' : '') +
+          `. Tx: ${txId}`,
+      );
+    } catch (err: any) {
+      console.error('Report error:', err);
+      setError(friendlyRegistryError(err));
+    } finally {
+      setRegistryBusy(null);
+    }
+  }, [registryReady, reportPhone, config, walletApi, registryAddress]);
+
+  const runLookup = useCallback(
+    async (phone: string) => {
+      if (!registryReady || !phone) return;
+      setRegistryBusy('lookup');
+      setError(null);
+      setLookup(null);
+      try {
+        const { createSession } = await import('./wallet');
+        const session = createSession(config, 'fraud-registry');
+        setLookup(
+          await lookupNumber(
+            session.publicDataProvider, registryAddress, phone, myCommitment,
+          ),
+        );
+      } catch (err: any) {
+        console.error('Lookup error:', err);
+        setError(friendlyRegistryError(err));
+      } finally {
+        setRegistryBusy(null);
+      }
+    },
+    [registryReady, config, registryAddress, myCommitment],
+  );
+
+  // Actions on a number found in the checked message.
+  const handleNumberLookup = useCallback(
+    (msisdn: string) => {
+      setLookupPhone(msisdn);
+      if (!registryReady) {
+        setRegistryNote(
+          'To look up community reports, connect a wallet and deploy or enter a ScamShield registry address.',
+        );
+        return;
+      }
+      setRegistryNote(null);
+      scrollToCard('scamshield-registry');
+      void runLookup(msisdn);
+    },
+    [registryReady, runLookup],
+  );
+
+  const handleNumberReport = useCallback(
+    (msisdn: string) => {
+      // Reporting is permanent, so only pre-fill: the member confirms below.
+      setReportPhone(msisdn);
+      if (!registryReady) {
+        setRegistryNote(
+          'To report a number, connect a wallet and deploy or enter a ScamShield registry address. Reports are only accepted from enrolled members.',
+        );
+        return;
+      }
+      setRegistryNote(null);
+      scrollToCard('scamshield-registry');
+    },
+    [registryReady],
+  );
+
   return (
     <div className="app">
       <header>
         <h1>Midnight AI Agent Marketplace</h1>
-        <p className="subtitle">Privacy-preserving agent registry on Midnight Network</p>
+        <p className="subtitle">Privacy-preserving agents and ScamShield fraud protection on Midnight Network</p>
       </header>
 
       <main>
@@ -476,6 +766,233 @@ function App() {
                 </a>
               </div>
             ))}
+          </section>
+        )}
+
+        <section className="card scam-card" id="scamshield-check">
+          <h2>ScamShield · Check a message</h2>
+          <p className="description">
+            Paste an SMS you are unsure about (English, Swahili or Sheng). The
+            check runs <strong>entirely in this browser</strong>: the message is
+            never uploaded, logged or sent anywhere, and no wallet is needed. It
+            shows the warning signs it found, not just a score.
+          </p>
+          <div className="input-group">
+            <label htmlFor="smsText">Message</label>
+            <textarea
+              id="smsText"
+              rows={5}
+              value={smsText}
+              onChange={(e) => setSmsText(e.target.value)}
+              placeholder="e.g. Umepokea Ksh 3,500 kimakosa. Tafadhali rudisha kwa 0712 345 678"
+            />
+            <label htmlFor="smsSender">Sender (optional)</label>
+            <input
+              id="smsSender"
+              type="text"
+              value={smsSender}
+              onChange={(e) => setSmsSender(e.target.value)}
+              placeholder="e.g. MPESA or 0712 345 678"
+            />
+          </div>
+          <button
+            className="btn primary"
+            onClick={handleCheckMessage}
+            disabled={!smsText.trim()}
+          >
+            Check message
+          </button>
+
+          {check && (
+            <div className="scam-result">
+              <p className={`scam-verdict ${check.result.label}`}>
+                {VERDICT_TEXT[check.result.label]}
+                <span className="scam-score">
+                  {Math.round(check.result.score * 100)}% scam likelihood
+                </span>
+              </p>
+              {check.result.signals.length === 0 ? (
+                <p className="privacy-note">No known warning signs found.</p>
+              ) : (
+                <ul className="signal-list">
+                  {check.result.signals.map((s) => (
+                    <li key={s.id}>
+                      <span className={`signal-weight ${s.weight > 0 ? 'up' : 'down'}`}>
+                        {s.weight > 0 ? '+' : ''}
+                        {s.weight.toFixed(1)}
+                      </span>
+                      <span>{s.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {check.numbers.length > 0 && (
+                <div className="number-list">
+                  <p className="label">Phone numbers in this message</p>
+                  {check.numbers.map((n) => (
+                    <div className="number-row" key={n}>
+                      <span className="value">{formatMsisdn(n)}</span>
+                      <span className="number-actions">
+                        <button
+                          className="btn secondary small"
+                          onClick={() => handleNumberLookup(n)}
+                          disabled={registryBusy !== null}
+                        >
+                          Look up
+                        </button>
+                        <button
+                          className="btn secondary small"
+                          onClick={() => handleNumberReport(n)}
+                          disabled={registryBusy !== null}
+                        >
+                          Report
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {registryNote && <p className="privacy-note">{registryNote}</p>}
+              <p className="privacy-note">
+                This is a transparent rule-based baseline, not a guarantee. Never
+                share your M-PESA PIN, and confirm any payment in your official
+                M-PESA balance before sending money back.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {walletStatus === 'connected' && (
+          <section className="card scam-card" id="scamshield-registry">
+            <h2>ScamShield · Community Registry</h2>
+            <p className="description">
+              Verified community members report scam numbers anonymously. A
+              zero-knowledge proof shows the reporter is an enrolled member and
+              has not reported this number before — without revealing which
+              member. Anyone can look up how many verified reports a number has.
+            </p>
+            <div className="input-group">
+              <label htmlFor="registryAddress">Registry address</label>
+              <input
+                id="registryAddress"
+                type="text"
+                value={registryInput}
+                onChange={(e) => setRegistryInput(e.target.value)}
+                placeholder={
+                  deployed['fraud-registry'] ||
+                  'Deploy “ScamShield Registry” above, or paste your community registry address'
+                }
+              />
+            </div>
+
+            {registryAddress && (
+              <>
+                <div className="input-group">
+                  <label>My reporter commitment (give this to your issuer)</label>
+                  {myCommitment ? (
+                    <>
+                      <p className="contract-address">{myCommitment}</p>
+                      <button className="btn secondary small" onClick={handleCopyCommitment}>
+                        {copied ? 'Copied' : 'Copy'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="btn secondary"
+                      onClick={handleShowCommitment}
+                      disabled={registryBusy !== null}
+                    >
+                      {registryBusy === 'commitment' ? 'Computing…' : 'Show my commitment'}
+                    </button>
+                  )}
+                  <p className="privacy-note">
+                    Derived from a random secret kept only in this browser, with
+                    a separate secret for each registry. The commitment does not
+                    reveal the secret. A report hides which enrolled member made
+                    it, so you are only as anonymous as the number of enrolled
+                    members; with very few members, you can be identified.
+                  </p>
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="enrollHex">Issuer: enroll a reporter</label>
+                  <input
+                    id="enrollHex"
+                    type="text"
+                    value={enrollHex}
+                    onChange={(e) => setEnrollHex(e.target.value)}
+                    placeholder="member's 64-character commitment"
+                  />
+                  <button
+                    className="btn primary"
+                    onClick={handleEnroll}
+                    disabled={registryBusy !== null || !enrollHex.trim()}
+                  >
+                    {registryBusy === 'enroll' ? 'Proving & Submitting…' : 'Enroll reporter'}
+                  </button>
+                  <p className="privacy-note">
+                    Only the organisation that deployed this registry (from this
+                    browser) can enroll members, after verifying them offline.
+                  </p>
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="reportPhone">Report a scam number</label>
+                  <input
+                    id="reportPhone"
+                    type="text"
+                    value={reportPhone}
+                    onChange={(e) => setReportPhone(e.target.value)}
+                    placeholder="e.g. 0712 345 678"
+                  />
+                  <button
+                    className="btn primary"
+                    onClick={handleReport}
+                    disabled={registryBusy !== null || !reportPhone.trim()}
+                  >
+                    {registryBusy === 'report' ? 'Proving & Submitting…' : 'Report number'}
+                  </button>
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="lookupPhone">Look up a number</label>
+                  <input
+                    id="lookupPhone"
+                    type="text"
+                    value={lookupPhone}
+                    onChange={(e) => setLookupPhone(e.target.value)}
+                    placeholder="e.g. +254 712 345 678"
+                  />
+                  <button
+                    className="btn secondary"
+                    onClick={() => runLookup(lookupPhone)}
+                    disabled={registryBusy !== null || !lookupPhone.trim()}
+                  >
+                    {registryBusy === 'lookup' ? 'Looking up…' : 'Look up'}
+                  </button>
+                </div>
+
+                {lookup && (
+                  <div className="scam-result">
+                    <p className={`scam-verdict ${lookup.count > 0n ? 'scam' : 'likely-safe'}`}>
+                      {formatMsisdn(lookup.msisdn)}
+                      <span className="scam-score">
+                        {lookup.count.toString()} verified report
+                        {lookup.count === 1n ? '' : 's'}
+                      </span>
+                    </p>
+                    <p className="privacy-note">
+                      Registry totals: {lookup.reporterCount.toString()} enrolled
+                      members (reports are anonymous among this many members),{' '}
+                      {lookup.totalReports.toString()} reports.
+                      {lookup.meEnrolled === true && ' You are enrolled here.'}
+                      {lookup.meEnrolled === false && ' You are not enrolled here yet.'}
+                      {' '}No reports does not mean safe — it may simply be new.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </section>
         )}
 
@@ -678,6 +1195,21 @@ function App() {
             <p className="privacy-note">
               Agent capabilities are committed on-chain via ZK proofs. Observers
               can verify an agent exists without seeing what it does.
+            </p>
+            <div className="privacy-item">
+              <span className="badge public">Public</span>
+              <span>ScamShield: reported numbers and their report counts</span>
+            </div>
+            <div className="privacy-item">
+              <span className="badge private">Private</span>
+              <span>Checked messages, which member filed a report</span>
+            </div>
+            <p className="privacy-note">
+              Messages are analysed on-device and never sent anywhere. A report
+              proves membership in ZK; a per-number nullifier blocks double
+              reports without linking one member's reports together. A report
+              is hidden only among the registry's enrolled members, so small
+              registries give weak anonymity.
             </p>
           </div>
         </section>
