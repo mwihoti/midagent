@@ -910,11 +910,13 @@ function App() {
                     </button>
                   )}
                   <p className="privacy-note">
-                    Derived from a random secret kept only in this browser, with
-                    a separate secret for each registry. The commitment does not
+                    Derived from a random secret stored in this browser, with
+                    a separate secret for each registry. When you report, your
+                    wallet&apos;s prover sees that secret and the number: use
+                    local proving, because a remote prover could identify you. The commitment does not
                     reveal the secret. A report hides which enrolled member made
-                    it, so you are only as anonymous as the number of enrolled
-                    members; with very few members, you can be identified.
+                    it, so you are only as anonymous as the number of members
+                    enrolled at that moment; with very few, you can be identified.
                   </p>
                 </div>
 
@@ -978,7 +980,7 @@ function App() {
 
                 {lookup && (
                   <div className="scam-result">
-                    <p className={`scam-verdict ${lookup.count > 0n ? 'scam' : 'likely-safe'}`}>
+                    <p className={`scam-verdict ${lookup.count > 0n ? 'suspicious' : 'likely-safe'}`}>
                       {formatMsisdn(lookup.msisdn)}
                       <span className="scam-score">
                         {lookup.count.toString()} verified report
@@ -987,11 +989,13 @@ function App() {
                     </p>
                     <p className="privacy-note">
                       Registry totals: {lookup.reporterCount.toString()} enrolled
-                      members (reports are anonymous among this many members),{' '}
+                      members now (each report is anonymous only among those
+                      enrolled when it was made),{' '}
                       {lookup.totalReports.toString()} reports.
                       {lookup.meEnrolled === true && ' You are enrolled here.'}
                       {lookup.meEnrolled === false && ' You are not enrolled here yet.'}
-                      {' '}No reports does not mean safe — it may simply be new.
+                      {' '}Reports are not proof of fraud, and no reports does not
+                      mean safe — it may simply be new.
                     </p>
                   </div>
                 )}

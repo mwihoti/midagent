@@ -1,8 +1,8 @@
 /**
  * Client helpers for the ScamShield fraud registry (contracts/fraud-registry).
  *
- * Everything here runs in the browser. Secrets (issuer / reporter) stay in
- * local private state; the only values that ever reach the chain are the ones
+ * Secrets (issuer / reporter) are stored in local private state and handed to
+ * the wallet's proving provider at proof time, which sees them in clear; the only values that ever reach the chain are the ones
  * the contract discloses: a reporter commitment at enrollment, and the Merkle
  * root, nullifier and target at report time.
  */
@@ -76,7 +76,7 @@ export function hasIssuerSecret(registryAddress: string): boolean {
  * random reporter secret for that registry on first use. Each registry gets
  * its own secret, so a member of several registries has unrelated public
  * commitments in each. The member hands ONLY this commitment to the issuer;
- * the secret behind it never leaves the device.
+ * the secret behind it is never published.
  */
 export async function myReporterCommitment(registryAddress: string): Promise<string> {
   const sk = ensureRandomSecret(reporterSecretName(registryAddress), 32);
@@ -206,7 +206,7 @@ function errorText(err: any): string {
 export function friendlyRegistryError(err: any): string {
   const text = errorText(err);
   if (/already reported this number/i.test(text)) {
-    return 'You have already reported this number from this device. Each verified member can report a given number once, so counts cannot be inflated.';
+    return 'You have already reported this number from this device. Each verified member can report a given number once.';
   }
   if (/reporter already enrolled/i.test(text)) {
     return 'That reporter commitment is already enrolled in this registry.';
