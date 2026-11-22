@@ -81,11 +81,12 @@ export const SCAM_THRESHOLD = 0.75;
 export const SUSPICIOUS_THRESHOLD = 0.4;
 
 /**
- * Sender IDs that genuine M-Pesa transaction confirmations come from.
- * (Alphanumeric sender IDs must be registered with the network in Kenya, so a
- * personal phone number cannot legitimately send as "MPESA".)
+ * The sender field is typed by the user and may be a saved contact name or a
+ * spoofed ID, so it is only ever a hint. Confirmations come from MPESA alone.
  */
-const OFFICIAL_MPESA_SENDERS = new Set(['MPESA', 'SAFARICOM']);
+const OFFICIAL_SENDERS = new Set(['MPESA', 'SAFARICOM']);
+/** Shape of an SMS sender ID (short, upper case, no spaces) or a short code. */
+const SENDER_ID = /^(?:[A-Z][A-Z0-9_&-]{1,10}|\d{3,6})$/;
 
 /**
  * Publicly documented customer-care mobile numbers that should NOT trigger the
@@ -255,13 +256,13 @@ export const FEATURES = {
   'official-sender': {
     weight: -2.0,
     description:
-      'Sent from the official "MPESA"/"Safaricom" sender ID, which personal numbers cannot use.',
+      'The sender you entered matches the "MPESA"/"Safaricom" sender ID. Sender names can be spoofed, so still check your balance.',
   },
   /** Registered alphanumeric sender IDs (banks, schools, utilities). */
   'registered-sender-id': {
     weight: -1.0,
     description:
-      'Sent from a registered alphanumeric sender ID (e.g. a bank), not a personal phone number.',
+      'The sender you entered looks like an organisation\'s sender ID. Sender names can be spoofed.',
   },
   /** Legit OTP/bank messages warn you NOT to share. */
   'security-warning': {
@@ -400,16 +401,18 @@ const SHORTENER_OR_CHEAP_TLD =
 // Helpers
 // ---------------------------------------------------------------------------
 
-type SenderKind = 'none' | 'official-mpesa' | 'registered' | 'personal';
+type SenderKind = 'none' | 'official-mpesa' | 'official-safaricom' | 'registered' | 'named' | 'personal';
 
 function classifySender(sender: string | undefined): SenderKind {
   const s = (sender ?? '').trim();
   if (s.length === 0) return 'none';
   if (normalizeKenyanMsisdn(s) !== null || /^\+?[\d\s\-()]{7,16}$/.test(s)) return 'personal';
   const compact = s.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (OFFICIAL_MPESA_SENDERS.has(compact)) return 'official-mpesa';
-  // Alphanumeric sender IDs and short codes are registered with the network.
-  return 'registered';
+  if (OFFICIAL_SENDERS.has(compact)) {
+    return compact === 'MPESA' ? 'official-mpesa' : 'official-safaricom';
+  }
+  // Anything else ("Mum", "John Kamau") is a name, which vouches for nothing.
+  return SENDER_ID.test(s) ? 'registered' : 'named';
 }
 
 /** True if `re` matches somewhere in `text` NOT immediately preceded by a negation. */
@@ -477,10 +480,13 @@ export function classifyMessage(text: string, opts: ClassifyOptions = {}): Class
   const looksLikeConfirmation = CONFIRMATION_CODE.test(original) || CONFIRMATION_WORDING.test(lower);
   if (looksLikeConfirmation) {
     fire('fake-mpesa-confirmation', sender === 'personal');
-    fire('confirmation-from-other-sender', sender === 'registered');
+    fire(
+      'confirmation-from-other-sender',
+      sender === 'registered' || sender === 'named' || sender === 'official-safaricom',
+    );
     fire('unverified-confirmation', sender === 'none');
   }
-  fire('official-sender', sender === 'official-mpesa');
+  fire('official-sender', sender === 'official-mpesa' || sender === 'official-safaricom');
   fire('registered-sender-id', sender === 'registered');
   fire(
     'brand-impersonation',
@@ -517,6 +523,7 @@ export function classifyMessage(text: string, opts: ClassifyOptions = {}): Class
   fire(
     'fake-customer-care',
     sender !== 'official-mpesa' &&
+      sender !== 'official-safaricom' &&
       sender !== 'registered' &&
       CUSTOMER_CARE.test(lower) &&
       phones.some((p) => !KNOWN_CARE_NUMBERS.has(p)),

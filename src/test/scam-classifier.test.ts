@@ -495,6 +495,13 @@ describe('ScamShield phone helpers', () => {
     }
   });
 
+  it('gives no credit for a contact name typed as the sender', () => {
+    const text = 'Nitumie 2k haraka kwa hii namba mpya';
+    for (const sender of ['Mum', 'John Kamau', 'friend@x.com']) {
+      expect(classifyMessage(text, { sender })).toEqual(classifyMessage(text));
+    }
+  });
+
   it('rejects anything that is not a Kenyan mobile number', () => {
     const bad = [
       '',
