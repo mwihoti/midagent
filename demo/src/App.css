@@ -200,10 +200,17 @@ header h1 {
   color: var(--error);
 }
 
-.error-state {
+.error-state,
+.connecting-state {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  margin: 0;
 }
 
 .privacy-info {

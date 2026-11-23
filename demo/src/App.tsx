@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import './App.css';
 import { CONTRACTS, type ContractKey } from './compiledContract';
 import type { AuctionView } from './auctionView';
+import { discoverWallets, friendlyConnectError, noWalletMessage } from './walletDiscovery';
 import {
   classifyMessage,
   extractPhoneNumbers,
@@ -48,6 +49,17 @@ function scrollToCard(id: string) {
 interface WalletChoice {
   key: string;
   label: string;
+  supported: boolean;
+  reason?: string;
+}
+
+function walletChoices(): WalletChoice[] {
+  return discoverWallets().map(({ key, label, supported, reason }) => ({
+    key,
+    label,
+    supported,
+    reason,
+  }));
 }
 
 type WalletStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -66,26 +78,37 @@ function App() {
   const [wallets, setWallets] = useState<WalletChoice[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<string>('');
   const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
+  const [connectingTo, setConnectingTo] = useState<string | null>(null);
   const [selectedContract, setSelectedContract] = useState<ContractKey>('agent-registry');
 
-  // Wallet extensions inject themselves into window.midnight asynchronously, so
-  // poll briefly to discover every available wallet (1AM, Lace, …).
+  // Wallet extensions inject themselves into window.midnight some time after
+  // the page loads, and can appear later still (unlocked, enabled, installed).
+  // Discovery is a cheap property read with no SDK imports, so keep polling
+  // rather than giving up after a few seconds.
   useEffect(() => {
-    let cancelled = false;
-    let tries = 0;
-    const detect = async () => {
-      const { listWallets } = await import('./wallet');
-      const found = listWallets().map((w) => ({ key: w.key, label: w.label }));
-      if (cancelled) return;
+    let lastSignature = '';
+    const detect = () => {
+      const found = walletChoices();
+      const signature = JSON.stringify(found);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
       setWallets(found);
-      setSelectedWallet((cur) => cur || found[0]?.key || '');
-      if (found.length === 0 && tries++ < 12) setTimeout(detect, 500);
+      setSelectedWallet((cur) =>
+        found.some((w) => w.key === cur && w.supported)
+          ? cur
+          : (found.find((w) => w.supported)?.key ?? ''),
+      );
     };
     detect();
-    return () => {
-      cancelled = true;
-    };
+    const timer = window.setInterval(detect, 1000);
+    // Warm the SDK chunk so the post-approval steps are quick. A failure here
+    // is retried when it is actually needed.
+    import('./wallet').catch(() => {});
+    return () => window.clearInterval(timer);
   }, []);
+  // Bumped on every connect attempt, cancel and disconnect, so a wallet
+  // answering an abandoned request can't flip the UI to connected.
+  const connectAttempt = useRef(0);
   const [deployed, setDeployed] = useState<Record<string, string>>({});
   const [deploying, setDeploying] = useState<ContractKey | null>(null);
   const [agentId, setAgentId] = useState('');
@@ -125,29 +148,60 @@ function App() {
   >(null);
   const [registryNote, setRegistryNote] = useState<string | null>(null);
 
-  const handleConnect = useCallback(async () => {
-    setWalletStatus('connecting');
-    setError(null);
-
-    try {
-      const { connectWallet } = await import('./wallet');
-
-      const { api, config: cfg, unshieldedAddress, walletLabel } =
-        await connectWallet(network, selectedWallet || undefined);
-
-      setWalletApi(api);
-      setConfig(cfg);
-      setAddress(unshieldedAddress);
-      setConnectedWallet(walletLabel);
-      setWalletStatus('connected');
-    } catch (err: any) {
-      console.error('Connect error:', err);
-      setError(err.message || 'Failed to connect');
+  // Deliberately NOT async: Lace opens its approval popup only while this
+  // click's user activation is live, so connect() must be called before
+  // anything is awaited (the old code awaited the SDK chunk first, and the
+  // browser could silently block the popup).
+  const handleConnect = useCallback(() => {
+    const all = discoverWallets();
+    const usable = all.filter((w) => w.supported);
+    const wallet = usable.find((w) => w.key === selectedWallet) ?? usable[0];
+    if (!wallet) {
+      setError(noWalletMessage(all));
       setWalletStatus('error');
+      return;
     }
+
+    const attempt = ++connectAttempt.current;
+    let pending: Promise<any>;
+    try {
+      pending = Promise.resolve(wallet.api.connect(network));
+    } catch (err) {
+      pending = Promise.reject(err);
+    }
+    setError(null);
+    setConnectingTo(wallet.label);
+    setWalletStatus('connecting');
+
+    void (async () => {
+      try {
+        const api = await pending;
+        if (attempt !== connectAttempt.current) return;
+        const { finishConnect } = await import('./wallet');
+        const { config: cfg, unshieldedAddress } = await finishConnect(api);
+        if (attempt !== connectAttempt.current) return;
+        setWalletApi(api);
+        setConfig(cfg);
+        setAddress(unshieldedAddress);
+        setConnectedWallet(wallet.label);
+        setWalletStatus('connected');
+      } catch (err: any) {
+        if (attempt !== connectAttempt.current) return;
+        console.error('Connect error:', err);
+        setError(friendlyConnectError(err, wallet.label, network));
+        setWalletStatus('error');
+      }
+    })();
   }, [network, selectedWallet]);
 
+  const handleCancelConnect = useCallback(() => {
+    connectAttempt.current++;
+    setWalletStatus('disconnected');
+    setError(null);
+  }, []);
+
   const handleDisconnect = useCallback(() => {
+    connectAttempt.current++;
     setWalletApi(null);
     setConfig(null);
     setAddress(null);
@@ -671,17 +725,20 @@ function App() {
                 id="wallet"
                 value={selectedWallet}
                 onChange={(e) => setSelectedWallet(e.target.value)}
-                disabled={wallets.length === 0}
+                disabled={!wallets.some((w) => w.supported)}
               >
-                {wallets.length === 0 ? (
-                  <option value="">No wallet detected — install 1AM or Lace</option>
-                ) : (
-                  wallets.map((w) => (
-                    <option key={w.key} value={w.key}>
-                      {w.label}
-                    </option>
-                  ))
+                {wallets.length === 0 && (
+                  <option value="">Looking for a wallet… (Lace or 1AM)</option>
                 )}
+                {wallets.length > 0 && !wallets.some((w) => w.supported) && (
+                  <option value="">No compatible wallet</option>
+                )}
+                {wallets.map((w) => (
+                  <option key={w.key} value={w.key} disabled={!w.supported}>
+                    {w.label}
+                    {w.supported ? '' : ' (not supported)'}
+                  </option>
+                ))}
               </select>
               <label htmlFor="network">Network</label>
               <select
@@ -695,19 +752,45 @@ function App() {
                   </option>
                 ))}
               </select>
-              <button
-                className="btn primary"
-                onClick={handleConnect}
-                disabled={wallets.length === 0}
-              >
+              {/* Never disabled: with no usable wallet, a click explains why
+                  instead of silently doing nothing. */}
+              <button className="btn primary" onClick={handleConnect}>
                 Connect{' '}
-                {wallets.find((w) => w.key === selectedWallet)?.label ?? 'Wallet'}{' '}
+                {wallets.find((w) => w.key === selectedWallet && w.supported)?.label ??
+                  'Wallet'}{' '}
                 ({network})
               </button>
+              {wallets.length === 0 && (
+                <p className="hint">
+                  No wallet found yet. Install Lace or 1AM and allow it on this site; it
+                  is picked up automatically (reload if you just installed it).
+                </p>
+              )}
+              {wallets
+                .filter((w) => !w.supported)
+                .map((w) => (
+                  <p className="hint" key={w.key}>
+                    {w.label} {w.reason}
+                  </p>
+                ))}
             </div>
           )}
           {walletStatus === 'connecting' && (
-            <p className="status">Connecting...</p>
+            <div className="connecting-state">
+              <p className="status">
+                Waiting for {connectingTo ?? 'the wallet'} to approve the connection to{' '}
+                {network}…
+              </p>
+              <p className="hint">
+                If no popup appeared, click the {connectingTo ?? 'wallet'} icon in your
+                browser toolbar; the request may be waiting there. The wallet must be
+                unlocked and set to {network}. If you cancel here, also close the
+                pending request in the wallet before connecting again.
+              </p>
+              <button className="btn secondary" onClick={handleCancelConnect}>
+                Cancel
+              </button>
+            </div>
           )}
           {walletStatus === 'connected' && (
             <div className="connected-info">
@@ -727,6 +810,9 @@ function App() {
               <p className="error">{error}</p>
               <button className="btn primary" onClick={handleConnect}>
                 Retry
+              </button>
+              <button className="btn secondary" onClick={handleCancelConnect}>
+                Back
               </button>
             </div>
           )}
