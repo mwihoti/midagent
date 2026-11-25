@@ -127,10 +127,66 @@ function makePrivateStateProvider() {
   };
 }
 
+const CONFIRM_TIMEOUT_MS = 3 * 60_000;
+
+/**
+ * Submit a finalized transaction and wait until the indexer reports it as
+ * applied. The wallet's submitTransaction resolves to void as soon as the tx
+ * is accepted for submission, so the tx id comes from the transaction itself,
+ * and success is only reported once the ledger actually applied it: a tx that
+ * passes the local circuit run (e.g. against a not-yet-indexed state) can
+ * still be rejected on-chain, and must not be shown as "recorded".
+ */
+async function submitAndConfirm(
+  session: any,
+  walletApi: any,
+  finalTx: any,
+  label: string,
+  onSubmitted?: (txId: string) => void,
+  beforeSubmit?: () => void,
+): Promise<string> {
+  const txId: string = finalTx.identifiers()[0];
+  // From here on the tx may land, even if one of the awaits below throws.
+  beforeSubmit?.();
+  await walletApi.submitTransaction(toHex(finalTx.serialize()));
+  console.log(`${label} tx submitted:`, txId);
+  onSubmitted?.(txId);
+  let finalized: { status: string };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // watchForTxData polls forever, so a dropped tx would never settle.
+    finalized = await Promise.race([
+      session.publicDataProvider.watchForTxData(txId),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timed out')), CONFIRM_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (cause) {
+    throw Object.assign(
+      new Error(
+        `Transaction ${txId} was submitted but is not confirmed yet. It may still land, so check it before retrying.`,
+      ),
+      { txId, cause },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  if (finalized.status !== 'SucceedEntirely') {
+    throw Object.assign(
+      new Error(`Transaction ${txId} was rejected on-chain (${finalized.status})`),
+      // Only FailEntirely guarantees that nothing was applied.
+      { txId, rejected: finalized.status === 'FailEntirely' },
+    );
+  }
+  return txId;
+}
+
 export async function deployContract(
   session: any,
   walletApi: any,
   compiledContract: any,
+  onSubmitted?: (txId: string, contractAddress: string) => void,
+  onAddress?: (contractAddress: string) => void,
 ) {
   const provingProvider = await walletApi.getProvingProvider(
     session.zkConfigProvider,
@@ -160,6 +216,7 @@ export async function deployContract(
   );
 
   const contractAddress = deployTxData.public.contractAddress;
+  onAddress?.(contractAddress);
 
   const provenTx = await deployTxData.private.unprovenTx.prove(
     provingProvider,
@@ -179,8 +236,9 @@ export async function deployContract(
     fromHex(balancedHex.tx),
   );
 
-  const txId = await walletApi.submitTransaction(toHex(finalTx.serialize()));
-  console.log('Deploy tx submitted:', txId);
+  const txId = await submitAndConfirm(session, walletApi, finalTx, 'Deploy', (id) =>
+    onSubmitted?.(id, contractAddress),
+  );
 
   return { contractAddress, txId };
 }
@@ -192,6 +250,8 @@ export async function callCircuit(
   contractAddress: string,
   circuitId: string,
   args: any[],
+  onSubmitted?: (txId: string) => void,
+  beforeSubmit?: () => void,
 ) {
   const provingProvider = await walletApi.getProvingProvider(
     session.zkConfigProvider,
@@ -238,8 +298,9 @@ export async function callCircuit(
     fromHex(balancedHex.tx),
   );
 
-  const txId = await walletApi.submitTransaction(toHex(finalTx.serialize()));
-  console.log('Call tx submitted:', txId);
+  const txId = await submitAndConfirm(
+    session, walletApi, finalTx, 'Call', onSubmitted, beforeSubmit,
+  );
 
   return { txId };
 }

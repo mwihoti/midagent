@@ -12,6 +12,28 @@
 > **Follow the build:** [@MidnightAgentMkt on X](https://x.com/MidnightAgentMkt)
 > <!-- TODO: replace with your real X handle URL after creating the profile -->
 
+### ScamShield — fraud protection (funding track)
+
+ScamShield is a standalone contract and DApp panel in this repo, reusing the
+marketplace's commit-and-prove pattern. It gives mobile-money users (Kenya
+first, English/Swahili/Sheng) two tools:
+
+- An **on-device, explainable scam-message checker**
+  ([`demo/src/scamShield/`](./demo/src/scamShield/)). It runs in the browser
+  with no network calls, so the message never leaves the device. It is
+  currently a hand-weighted baseline, not a trained model.
+- An **anonymous, Sybil-resistant scam-number registry**
+  ([`contracts/fraud-registry.compact`](./contracts/fraud-registry.compact)).
+  Community organisations enroll verified members. A member proves membership
+  in zero knowledge and can report a number once. The wallet's prover sees the
+  member's secret and the number, so anonymity needs local proving. Anyone can read how many
+  verified reports a number has from the public ledger. The current demo asks
+  you to connect a wallet first; wallet-free lookup is planned.
+
+The registry is compiled and covered by simulator tests, but it is **not yet
+deployed** to any network. The funding application draft is in
+[`FUNDING.md`](./FUNDING.md).
+
 A privacy-preserving marketplace for AI agents, built on **Midnight**. Agents
 register with their capabilities hidden behind ZK commitments, buyers match
 against them without either side revealing its hand, and payments settle through
@@ -27,7 +49,8 @@ gotchas — the things that actually bit me and how I got around them.
 
 ## What it does
 
-Five Compact contracts model the marketplace:
+Five Compact contracts model the marketplace. A sixth, `fraud-registry`, is
+the ScamShield registry:
 
 | Contract | Circuits | Purpose |
 |----------|----------|---------|
@@ -36,6 +59,7 @@ Five Compact contracts model the marketplace:
 | `marketplace.compact` | `submitIntent`, `matchIntent`, `cancelIntent` | Shielded intent matching |
 | `payments.compact` | `createEscrow`, `releaseEscrow`, `cancelEscrow`, `createSubscription`, `revokeSubscription` | Hybrid escrow + subscription payments |
 | `composition.compact` | `registerWorkflow`, `completeStep`, `cancelWorkflow` | DAG workflows that chain agents |
+| `fraud-registry.compact` | `enrollReporter`, `reportScam` (pure: `reporterCommitment`, `targetKey`) | **ScamShield**: anonymous scam-number registry, one report per member per number (built and tested; not yet deployed). See [`FUNDING.md`](./FUNDING.md) |
 
 A React DApp (`demo/`) drives the whole thing from the browser: connect a
 wallet, deploy any contract, and call its circuits — with the wallet doing the
@@ -187,6 +211,8 @@ the chain**. What an observer can and cannot learn, per contract:
 | `marketplace` | An intent exists; `intentCount`; that a match happened; which agent id was matched | The buyer's requirements, or the matcher's address |
 | `payments` | An escrow or subscription exists | Its terms — amount, payer, payee |
 | `composition` | A workflow exists; that a step completed | The DAG definition, or any step's output |
+| `fraud-registry` (enroll) | The issuer key (a hash of the issuer secret); enrolled reporter **commitments** (Merkle tree leaves); `reporterCount` | The issuer secret; each member's reporter secret |
+| `fraud-registry` (report) | A tree root the registry has held; the report **nullifier**; the reported number's `targetKey`; per-number report counts; `totalReports` | **Which** enrolled member reported; the reporter secret, commitment and Merkle path; whether one member's reports of *different* numbers (or of one number in *different* registries: the nullifier includes the registry address) are linked. A report is hidden only among the members enrolled when its tree root was current, and only from parties other than the wallet's prover, so a registry with few members gives weak anonymity. The **number itself is not hidden**: `targetKey` is a hash of an enumerable phone number, so lookups work for anyone |
 
 `proveOwnership` is the clearest demonstration: it re-derives
 `persistentHash(capabilities)` from the private witness held in the browser and
@@ -230,9 +256,11 @@ yarn test:unit
 ✓ src/test/composition.sim.test.ts   (6 tests)
 ✓ src/test/config.sim.test.ts        (4 tests)
 ✓ src/test/private-state.sim.test.ts (3 tests)
+✓ src/test/fraud-registry.sim.test.ts (15 tests)
+✓ src/test/scam-classifier.test.ts    (24 tests)
 
-Test Files  7 passed (7)
-     Tests  45 passed (45)
+Test Files  9 passed (9)
+     Tests  84 passed (84)
 ```
 
 Every contract has a test asserting its private witness never reaches public
@@ -270,7 +298,7 @@ The badge at the top reflects the latest run.
 
 ```bash
 yarn install
-yarn compile                         # compiles all five contracts to contracts/managed/
+yarn compile                         # compiles all six contracts to contracts/managed/
 
 cp .env.example .env                 # MIDNIGHT_PREPROD_MNEMONIC and BLOCKFROST_PROJECT_ID (never commit .env)
 docker compose -f proof-server.yml up -d   # proof server, pinned to ledger 8.0.3
@@ -302,7 +330,7 @@ yarn env:up && yarn test:local && yarn env:down   # or: yarn validate
 ```bash
 cd demo
 npm install
-npm run sync:zk    # copy all four contracts' ZK keys/zkir into public/contract/
+npm run sync:zk    # copy all six contracts' ZK keys/zkir into public/contract/
 npm run dev        # http://localhost:5173
 ```
 
