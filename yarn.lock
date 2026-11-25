@@ -1950,9 +1950,9 @@ eastasianwidth@^0.2.0:
   integrity sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==
 
 effect@^3.19.19, effect@^3.20.0:
-  version "3.22.0"
-  resolved "https://registry.yarnpkg.com/effect/-/effect-3.22.0.tgz#74afbee753a78586e784e42b299d2d469dc13b3a"
-  integrity sha512-jhYFe0zTlIRqYFrKTS+6luhmS/Tm0f+JLo0K9KUxvtFab1SUGEszQi2ehOP6QzAZvy831lDmTwwzvVDZSPNz3g==
+  version "3.22.5"
+  resolved "https://registry.yarnpkg.com/effect/-/effect-3.22.5.tgz#fbd2b5a61309ccd08011465ed1094c65e1a42c13"
+  integrity sha512-AdIU4llI19BzhJ4xUBZix7kS8oiYSlCsJ61j3UM3UyJw9ecDrsrrweDFm/Ku1nHbJWMLoynK+1Me4it3Zkmjpw==
   dependencies:
     "@standard-schema/spec" "^1.0.0"
     fast-check "^3.23.1"
